@@ -23,6 +23,7 @@ POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-}"
 BULK_INGEST_HOST_DIR="${BULK_INGEST_HOST_DIR:-/opt/ai_bot_folder}"
 AUTO_DOMAIN_NIP="${AUTO_DOMAIN_NIP:-1}"
 USE_EXISTING_SECRETS="${USE_EXISTING_SECRETS:-1}"
+COMPOSE_VERSION="${COMPOSE_VERSION:-v2.27.0}"
 
 read_env_value() {
   local file="$1"
@@ -46,6 +47,24 @@ discover_public_ip() {
   echo "${ip}"
 }
 
+ensure_docker_compose() {
+  if sudo docker compose version >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "docker compose plugin not found. Installing standalone plugin ${COMPOSE_VERSION}..."
+  sudo mkdir -p /usr/local/lib/docker/cli-plugins
+  sudo curl -fsSL \
+    "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-x86_64" \
+    -o /usr/local/lib/docker/cli-plugins/docker-compose
+  sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+
+  if ! sudo docker compose version >/dev/null 2>&1; then
+    echo "Failed to install docker compose plugin." >&2
+    exit 1
+  fi
+}
+
 if [[ -z "${REPO_URL}" ]]; then
   echo "REPO_URL is required." >&2
   exit 1
@@ -58,18 +77,22 @@ fi
 echo "[1/7] Installing Docker/Git..."
 if command -v apt >/dev/null 2>&1; then
   sudo apt update
-  sudo apt install -y docker.io docker-compose-plugin git curl python3
+  sudo apt install -y docker.io git curl python3
+  sudo apt install -y docker-compose-plugin || true
 elif command -v dnf >/dev/null 2>&1; then
   sudo dnf makecache -y
-  sudo dnf install -y docker docker-compose-plugin git curl python3
+  sudo dnf install -y docker git curl python3
+  sudo dnf install -y docker-compose-plugin || true
 elif command -v yum >/dev/null 2>&1; then
   sudo yum makecache -y
-  sudo yum install -y docker docker-compose-plugin git curl python3
+  sudo yum install -y docker git curl python3
+  sudo yum install -y docker-compose-plugin || true
 else
   echo "No supported package manager found (apt/dnf/yum)." >&2
   exit 1
 fi
 sudo systemctl enable --now docker
+ensure_docker_compose
 
 echo "[2/7] Cloning/Updating repository..."
 if [[ -d "${APP_DIR}/.git" ]]; then
