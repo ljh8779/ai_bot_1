@@ -81,16 +81,27 @@ if command -v apt >/dev/null 2>&1; then
   sudo apt install -y docker-compose-plugin || true
 elif command -v dnf >/dev/null 2>&1; then
   sudo dnf makecache -y
-  sudo dnf install -y docker git curl python3
+  sudo dnf install -y docker git python3
   sudo dnf install -y docker-compose-plugin || true
 elif command -v yum >/dev/null 2>&1; then
   sudo yum makecache -y
-  sudo yum install -y docker git curl python3
+  sudo yum install -y docker git python3
   sudo yum install -y docker-compose-plugin || true
 else
   echo "No supported package manager found (apt/dnf/yum)." >&2
   exit 1
 fi
+
+if ! command -v curl >/dev/null 2>&1; then
+  if command -v apt >/dev/null 2>&1; then
+    sudo apt install -y curl
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y curl-minimal || sudo dnf install -y curl --allowerasing
+  elif command -v yum >/dev/null 2>&1; then
+    sudo yum install -y curl-minimal || sudo yum install -y curl
+  fi
+fi
+
 sudo systemctl enable --now docker
 ensure_docker_compose
 
