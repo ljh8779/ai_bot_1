@@ -50,11 +50,22 @@ def _is_model_available(required_model: str, available_models: set[str]) -> bool
     return False
 
 
+def _is_pgvector_duplicate_extension_error(exc: Exception) -> bool:
+    message = str(exc)
+    return "pg_extension_name_index" in message and "(extname)=(vector)" in message
+
+
 @app.on_event("startup")
 def on_startup() -> None:
     try:
         with engine.begin() as conn:
-            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            try:
+                conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            except SQLAlchemyError as exc:
+                # Guard against multi-process startup race where two workers
+                # concurrently create pgvector extension.
+                if not _is_pgvector_duplicate_extension_error(exc):
+                    raise
         Base.metadata.create_all(bind=engine)
         with engine.begin() as conn:
             conn.execute(text("ALTER TABLE documents ADD COLUMN IF NOT EXISTS content_hash VARCHAR(64)"))
