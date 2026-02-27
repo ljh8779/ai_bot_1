@@ -94,6 +94,53 @@ npm run dev
 - Vite dev server: `http://localhost:5173`
 - Production bundle is generated in `app/web/dist` during Docker build.
 
+## Production Deployment (EC2 + Docker Compose)
+
+Recommended: `docker-compose.prod.yml` + Caddy (automatic HTTPS).
+
+### 1) Prepare
+
+```bash
+cp .env.prod.example .env.prod
+```
+
+Edit `.env.prod`:
+- `DOMAIN` (example: `chat.example.com`)
+- `ACME_EMAIL`
+- `GOOGLE_API_KEY` (new key)
+- `POSTGRES_PASSWORD`
+- `DATABASE_URL` (must match DB credentials)
+- `BULK_INGEST_HOST_DIR` (default `/opt/ai_bot_folder`)
+
+### 2) Create bulk ingest host directory
+
+```bash
+sudo mkdir -p /opt/ai_bot_folder
+sudo chown $USER:$USER /opt/ai_bot_folder
+```
+
+### 3) Deploy
+
+```bash
+bash scripts/deploy_prod.sh
+```
+
+### 4) Check status
+
+```bash
+bash scripts/check_prod.sh
+```
+
+### 5) Access
+
+- `https://<DOMAIN>`
+- Health: `https://<DOMAIN>/health`
+
+### Optional: Nginx template
+
+- A reverse-proxy template is included: `deploy/nginx/app.conf`
+- Caddy is still the default recommendation because it auto-manages TLS.
+
 ## Notes
 
 - If using Google provider, `GOOGLE_API_KEY` is required.
@@ -174,3 +221,7 @@ If a `.zip` is found, supported files inside the archive are also ingested.
 - SSO middleware for auto-claims injection
 - Audit logs and sensitive-data masking
 - Reranker for retrieval precision
+
+## Ops Checklist
+
+- See `docs/deployment-checklist.md`

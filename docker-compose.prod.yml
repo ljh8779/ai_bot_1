@@ -1,0 +1,87 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - pgdata_prod:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    expose:
+      - "8000"
+    volumes:
+      - type: bind
+        source: ${BULK_INGEST_HOST_DIR}
+        target: /bulk_ingest
+        read_only: true
+    networks:
+      - backend
+      - web
+
+  # Optional local LLM. Enable only when LLM_PROVIDER=ollama.
+  # Usage:
+  #   docker compose -f docker-compose.prod.yml --env-file .env.prod --profile local-llm up -d
+  ollama:
+    image: ollama/ollama:latest
+    restart: unless-stopped
+    profiles: ["local-llm"]
+    volumes:
+      - ollama_data_prod:/root/.ollama
+    networks:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - web
+
+networks:
+  backend:
+    driver: bridge
+  web:
+    driver: bridge
+
+volumes:
+  pgdata_prod:
+  ollama_data_prod:
+  caddy_data:
+  caddy_config:
