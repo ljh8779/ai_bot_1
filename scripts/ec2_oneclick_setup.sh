@@ -56,8 +56,19 @@ if [[ -z "${ACME_EMAIL}" ]]; then
 fi
 
 echo "[1/7] Installing Docker/Git..."
-sudo apt update
-sudo apt install -y docker.io docker-compose-plugin git
+if command -v apt >/dev/null 2>&1; then
+  sudo apt update
+  sudo apt install -y docker.io docker-compose-plugin git curl python3
+elif command -v dnf >/dev/null 2>&1; then
+  sudo dnf makecache -y
+  sudo dnf install -y docker docker-compose-plugin git curl python3
+elif command -v yum >/dev/null 2>&1; then
+  sudo yum makecache -y
+  sudo yum install -y docker docker-compose-plugin git curl python3
+else
+  echo "No supported package manager found (apt/dnf/yum)." >&2
+  exit 1
+fi
 sudo systemctl enable --now docker
 
 echo "[2/7] Cloning/Updating repository..."
