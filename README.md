@@ -142,6 +142,14 @@ bash scripts/ec2_oneclick_setup.sh
 bash scripts/check_prod.sh
 ```
 
+### Fast Re-Run (single command)
+
+```bash
+bash scripts/run_prod_now.sh
+```
+
+- This generates `docker-compose.prod.override.yml` and runs API with `--workers 1` to avoid pgvector startup race.
+
 ### 5) Access
 
 - `https://<DOMAIN>`
