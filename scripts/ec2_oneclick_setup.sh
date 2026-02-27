@@ -168,6 +168,12 @@ if [[ -z "${POSTGRES_PASSWORD}" ]]; then
   exit 1
 fi
 
+export DOMAIN
+export ACME_EMAIL
+export GOOGLE_API_KEY
+export POSTGRES_PASSWORD
+export BULK_INGEST_HOST_DIR
+
 python3 - <<'PY'
 from pathlib import Path
 import os
