@@ -33,10 +33,9 @@ docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" ps
 
 echo ""
 echo "Health check:"
-curl -fsS "http://localhost/health" || {
-  echo "Health check failed via http://localhost/health" >&2
+curl -fsS -H "Host: ${DOMAIN}" "http://127.0.0.1/health" || {
+  echo "Health check failed via Caddy route (Host: ${DOMAIN})." >&2
   exit 1
 }
 echo ""
 echo "Deployment complete."
-

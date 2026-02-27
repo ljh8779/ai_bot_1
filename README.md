@@ -125,6 +125,17 @@ sudo chown $USER:$USER /opt/ai_bot_folder
 bash scripts/deploy_prod.sh
 ```
 
+### EC2 One-Click (Install + Configure + Deploy)
+
+```bash
+REPO_URL="https://github.com/your/repo.git" \
+DOMAIN="chat.example.com" \
+ACME_EMAIL="ops@example.com" \
+GOOGLE_API_KEY="replace_with_new_google_key" \
+POSTGRES_PASSWORD="change_this_password" \
+bash scripts/ec2_oneclick_setup.sh
+```
+
 ### 4) Check status
 
 ```bash
