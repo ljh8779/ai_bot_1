@@ -506,8 +506,6 @@ export default function App() {
 
       <main className="container">
         <header className="hero">
-          <p className="eyebrow">사내 AI 어시스턴트</p>
-          <h1>ZIN AI bot</h1>
           <div className="hero-right">
             <button type="button" className="admin-toggle" onClick={() => setIsAdminOpen(true)}>
               관리 메뉴
