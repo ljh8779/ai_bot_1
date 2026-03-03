@@ -150,6 +150,18 @@ bash scripts/run_prod_now.sh
 
 - This generates `docker-compose.prod.override.yml` and runs API with `--workers 1` to avoid pgvector startup race.
 
+### HTTP-Only Emergency Mode (no HTTPS)
+
+If TLS/ACME issuance fails and you need immediate access, run:
+
+```bash
+bash scripts/run_http_only.sh
+```
+
+- This generates `docker-compose.prod.http.override.yml`.
+- Caddy is switched to `deploy/caddy/Caddyfile.http` with `auto_https off`.
+- Access URL becomes `http://<DOMAIN>`.
+
 ### 5) Access
 
 - `https://<DOMAIN>`
@@ -230,6 +242,7 @@ If a `.zip` is found, supported files inside the archive are also ingested.
 - `MAX_CONTEXT_CHUNKS`
 - `INGEST_EMBEDDING_BATCH_SIZE`
 - `SEARCH_CANDIDATE_MULTIPLIER`
+- `ALLOW_GENERAL_FALLBACK`
 - `MAX_UPLOAD_SIZE_MB`
 - `PDF_OCR_ENABLED`, `PDF_OCR_MAX_PAGES`, `PDF_OCR_DPI`
 - `PDF_OCR_FALLBACK_MIN_CHARS`, `OCR_TESSERACT_LANG`

@@ -1,0 +1,17 @@
+{
+	auto_https off
+}
+
+http://{$DOMAIN} {
+	encode zstd gzip
+
+	# Basic security headers
+	header {
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+	}
+
+	reverse_proxy api:8000
+}

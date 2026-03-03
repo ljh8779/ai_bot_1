@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     ingest_embedding_batch_size: int = 64
     max_context_chunks: int = 5
     search_candidate_multiplier: int = 4
+    allow_general_fallback: bool = True
     max_upload_size_mb: int = 20
     bulk_ingest_dir: str = "/bulk_ingest"
     bulk_ingest_max_files: int = 1000

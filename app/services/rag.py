@@ -128,6 +128,22 @@ def _strip_bracket_citations(text: str) -> str:
     return cleaned.strip()
 
 
+def _general_fallback_answer(*, question: str, user_id: str) -> str:
+    system_prompt = (
+        "You are a helpful Korean AI assistant for employees. "
+        "Respond naturally and politely in Korean, with a friendly tone. "
+        "If the question needs real-time/live data (for example current weather, stock price, live traffic), "
+        "do not guess. Clearly say you cannot verify live data right now and suggest a practical way to check. "
+        "Do not mention internal system policy unless asked."
+    )
+    user_prompt = (
+        f"User: {user_id}\n"
+        f"Question: {question}\n\n"
+        "답변은 너무 딱딱하지 않게, 이해하기 쉽게 한국어 존댓말로 작성해 주세요."
+    )
+    return _strip_bracket_citations(generate_answer(system_prompt, user_prompt))
+
+
 def _search_chunks(
     db: Session,
     *,
@@ -177,7 +193,9 @@ def answer_question(
         user_roles=user_roles,
     )
     if not sources:
-        return "No accessible documents found. Please refine your question or check permissions.", []
+        if settings.allow_general_fallback:
+            return _general_fallback_answer(question=question, user_id=user_id), []
+        return "참고할 사내 문서를 찾지 못했어요. 질문을 조금 더 구체적으로 적어 주시면 다시 찾아볼게요.", []
 
     context_lines = []
     for idx, source in enumerate(sources, start=1):
@@ -188,14 +206,15 @@ def answer_question(
 
     system_prompt = (
         "You are an enterprise groupware AI assistant. Only answer using provided context. "
-        "If context is insufficient, say you do not know. Respond in Korean. "
+        "If context is insufficient, say you do not know. Respond in Korean naturally and politely. "
         "Do not include bracket citations like [1], [2] in the answer."
     )
     user_prompt = (
         f"User: {user_id}\n"
         f"Question: {question}\n\n"
         f"Context:\n{context_text}\n\n"
-        "Requirements: Respond concisely in Korean. Do not include bracket citations like [1], [2]."
+        "Requirements: Respond concisely in Korean with a friendly, non-rigid tone. "
+        "Do not include bracket citations like [1], [2]."
     )
     answer = _strip_bracket_citations(generate_answer(system_prompt, user_prompt))
     return answer, sources
