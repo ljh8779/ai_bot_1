@@ -1,4 +1,5 @@
 import hashlib
+import math
 import re
 from typing import Any
 
@@ -13,6 +14,12 @@ from app.services.llm import generate_answer, get_embedding, get_embeddings
 from app.utils import chunk_text, normalize_text
 
 settings = get_settings()
+FOLLOWUP_MARKERS = re.compile(
+    r"(그거|그건|그럼|이거|저거|그쪽|거기|그건데|그거는|우리회사도|우리회사에서도|그럼 우리)",
+    flags=re.IGNORECASE,
+)
+MAX_HISTORY_ITEMS = 8
+MAX_HISTORY_TEXT_LEN = 700
 
 
 def _is_document_allowed(
@@ -144,6 +151,106 @@ def _general_fallback_answer(*, question: str, user_id: str) -> str:
     return _strip_bracket_citations(generate_answer(system_prompt, user_prompt))
 
 
+def _normalize_history(history: list[dict[str, str]] | None) -> list[dict[str, str]]:
+    if not history:
+        return []
+    cleaned: list[dict[str, str]] = []
+    for item in history[-MAX_HISTORY_ITEMS:]:
+        role = str(item.get("role") or "").strip().lower()
+        text = normalize_text(str(item.get("text") or "")).strip()
+        if role not in {"user", "assistant"} or not text:
+            continue
+        cleaned.append({"role": role, "text": text[:MAX_HISTORY_TEXT_LEN]})
+    return cleaned
+
+
+def _latest_history_text(history: list[dict[str, str]], role: str) -> str:
+    for item in reversed(history):
+        if item.get("role") == role:
+            return item.get("text", "")
+    return ""
+
+
+def _cosine_similarity(v1: list[float], v2: list[float]) -> float:
+    if len(v1) != len(v2) or not v1:
+        return 0.0
+    dot = sum(a * b for a, b in zip(v1, v2))
+    norm1 = math.sqrt(sum(a * a for a in v1))
+    norm2 = math.sqrt(sum(b * b for b in v2))
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
+    return dot / (norm1 * norm2)
+
+
+def _should_use_history_context(question: str, history: list[dict[str, str]]) -> bool:
+    if not history:
+        return False
+
+    last_user = _latest_history_text(history, "user")
+    last_assistant = _latest_history_text(history, "assistant")
+    candidates = [text for text in [last_user, last_assistant] if text]
+    if not candidates:
+        return False
+
+    embeddings = get_embeddings([question, *candidates])
+    if len(embeddings) != (1 + len(candidates)):
+        return False
+
+    question_vec = embeddings[0]
+    similarity = max(_cosine_similarity(question_vec, vec) for vec in embeddings[1:])
+    has_followup_marker = bool(FOLLOWUP_MARKERS.search(question))
+    looks_short = len(question) <= 16
+
+    if has_followup_marker and similarity >= 0.25:
+        return True
+    if looks_short and similarity >= 0.45:
+        return True
+    return similarity >= 0.78
+
+
+def _rewrite_followup_question(*, question: str, history: list[dict[str, str]], user_id: str) -> str:
+    history_text = "\n".join(
+        [f"{idx + 1}. {item['role']}: {item['text']}" for idx, item in enumerate(history[-4:])]
+    )
+    system_prompt = (
+        "You rewrite follow-up chat questions into standalone Korean questions. "
+        "Return only one rewritten question sentence. "
+        "If rewriting is not possible, return the original question unchanged."
+    )
+    user_prompt = (
+        f"User: {user_id}\n"
+        f"Recent conversation:\n{history_text}\n\n"
+        f"Original question: {question}\n\n"
+        "Output rules: One standalone Korean question only. No explanation."
+    )
+    rewritten = _strip_bracket_citations(generate_answer(system_prompt, user_prompt))
+    rewritten = rewritten.strip().strip('"').strip("'")
+    if not rewritten:
+        return question
+    return rewritten[:4000]
+
+
+def _resolve_effective_question(*, question: str, user_id: str, history: list[dict[str, str]] | None) -> str:
+    normalized_question = normalize_text(question).strip()
+    if not normalized_question:
+        return question
+
+    cleaned_history = _normalize_history(history)
+    if not cleaned_history:
+        return normalized_question
+
+    try:
+        if not _should_use_history_context(normalized_question, cleaned_history):
+            return normalized_question
+        return _rewrite_followup_question(
+            question=normalized_question,
+            history=cleaned_history,
+            user_id=user_id,
+        )
+    except Exception:
+        return normalized_question
+
+
 def _is_low_confidence_retrieval(sources: list[SourceChunk]) -> bool:
     if not sources:
         return True
@@ -191,8 +298,10 @@ def answer_question(
     user_id: str,
     user_department: str | None,
     user_roles: list[str],
+    history: list[dict[str, str]] | None = None,
 ) -> tuple[str, list[SourceChunk]]:
-    question_embedding = get_embedding(question)
+    effective_question = _resolve_effective_question(question=question, user_id=user_id, history=history)
+    question_embedding = get_embedding(effective_question)
     sources = _search_chunks(
         db,
         question_embedding=question_embedding,
@@ -201,10 +310,10 @@ def answer_question(
     )
     if not sources:
         if settings.allow_general_fallback:
-            return _general_fallback_answer(question=question, user_id=user_id), []
+            return _general_fallback_answer(question=effective_question, user_id=user_id), []
         return "참고할 사내 문서를 찾지 못했어요. 질문을 조금 더 구체적으로 적어 주시면 다시 찾아볼게요.", []
     if settings.allow_general_fallback and _is_low_confidence_retrieval(sources):
-        return _general_fallback_answer(question=question, user_id=user_id), []
+        return _general_fallback_answer(question=effective_question, user_id=user_id), []
 
     context_lines = []
     for idx, source in enumerate(sources, start=1):
@@ -225,7 +334,8 @@ def answer_question(
     )
     user_prompt = (
         f"User: {user_id}\n"
-        f"Question: {question}\n\n"
+        f"Question: {question}\n"
+        f"Interpreted question for retrieval: {effective_question}\n\n"
         f"Context:\n{context_text}\n\n"
         "Requirements: Respond concisely in Korean with a friendly, non-rigid tone. "
         "Do not include bracket citations like [1], [2]."

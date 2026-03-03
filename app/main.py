@@ -274,6 +274,7 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
             user_id=payload.user_id,
             user_department=payload.user_department,
             user_roles=payload.user_roles,
+            history=[{"role": item.role, "text": item.text} for item in payload.history],
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -49,11 +49,17 @@ class BulkIngestResponse(BaseModel):
     details: list[BulkIngestItem] = Field(default_factory=list)
 
 
+class ChatHistoryItem(BaseModel):
+    role: Literal["user", "assistant"]
+    text: str = Field(min_length=1, max_length=4000)
+
+
 class ChatRequest(BaseModel):
     question: str = Field(min_length=1, max_length=4000)
     user_id: str = Field(min_length=1, description="Groupware SSO user identifier")
     user_department: str | None = Field(default=None)
     user_roles: list[str] = Field(default_factory=list)
+    history: list[ChatHistoryItem] = Field(default_factory=list)
 
 
 class SourceChunk(BaseModel):

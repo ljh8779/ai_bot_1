@@ -47,6 +47,17 @@ function nextMessageId() {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+const ASSISTANT_WELCOME_TEXT = "질문을 입력해 주세요. 업로드된 문서를 기반으로 답변하고 출처를 함께 보여드립니다.";
+
+function buildChatHistory(messages) {
+  return messages
+    .filter((msg) => !msg.typing && (msg.role === "user" || msg.role === "assistant"))
+    .filter((msg) => (msg.text || "").trim().length > 0)
+    .filter((msg) => !(msg.role === "assistant" && msg.text === ASSISTANT_WELCOME_TEXT))
+    .slice(-8)
+    .map((msg) => ({ role: msg.role, text: String(msg.text).trim().slice(0, 1200) }));
+}
+
 function ChatMessage({ msg }) {
   return (
     <div className={`msg-row ${msg.role}`}>
@@ -88,7 +99,7 @@ export default function App() {
     {
       id: nextMessageId(),
       role: "assistant",
-      text: "질문을 입력해 주세요. 업로드된 문서를 기반으로 답변하고 출처를 함께 보여드립니다.",
+      text: ASSISTANT_WELCOME_TEXT,
       sources: [],
       typing: false,
     },
@@ -190,11 +201,13 @@ export default function App() {
     setIsSending(true);
 
     try {
+      const history = buildChatHistory(messages);
       const payload = {
         question: trimmed,
         user_id: chatSettings.user_id.trim(),
         user_department: chatSettings.user_department.trim() || null,
         user_roles: csvToList(chatSettings.user_roles),
+        history,
       };
 
       const result = await callApi("/chat", {
