@@ -37,9 +37,13 @@ body {
 .container {
   max-width: 1040px;
   margin: 0 auto;
-  padding: 22px 20px 36px;
+  padding: 12px 20px 8px;
   position: relative;
   z-index: 1;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
 .hero {
@@ -71,7 +75,11 @@ body {
 }
 
 .chat-shell {
-  margin-top: 14px;
+  margin-top: 10px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-card {
@@ -80,11 +88,15 @@ body {
   background: var(--panel);
   box-shadow: 0 4px 14px rgba(36, 59, 79, 0.06);
   padding: 12px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .chat-thread {
-  height: min(70vh, 720px);
-  min-height: 420px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   background: linear-gradient(180deg, #f8fbfd, #f4f8fb);
   border: 1px solid #d2dce5;
@@ -415,8 +427,7 @@ th {
   }
 
   .chat-thread {
-    height: 54vh;
-    min-height: 320px;
+    min-height: 0;
   }
 
   .hero-right {
