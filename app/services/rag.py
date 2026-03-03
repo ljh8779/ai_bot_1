@@ -144,6 +144,13 @@ def _general_fallback_answer(*, question: str, user_id: str) -> str:
     return _strip_bracket_citations(generate_answer(system_prompt, user_prompt))
 
 
+def _is_low_confidence_retrieval(sources: list[SourceChunk]) -> bool:
+    if not sources:
+        return True
+    best_score = max(source.score for source in sources)
+    return best_score < settings.general_fallback_min_score
+
+
 def _search_chunks(
     db: Session,
     *,
@@ -196,6 +203,8 @@ def answer_question(
         if settings.allow_general_fallback:
             return _general_fallback_answer(question=question, user_id=user_id), []
         return "참고할 사내 문서를 찾지 못했어요. 질문을 조금 더 구체적으로 적어 주시면 다시 찾아볼게요.", []
+    if settings.allow_general_fallback and _is_low_confidence_retrieval(sources):
+        return _general_fallback_answer(question=question, user_id=user_id), []
 
     context_lines = []
     for idx, source in enumerate(sources, start=1):
@@ -205,8 +214,13 @@ def answer_question(
     context_text = "\n".join(context_lines)
 
     system_prompt = (
-        "You are an enterprise groupware AI assistant. Only answer using provided context. "
-        "If context is insufficient, say you do not know. Respond in Korean naturally and politely. "
+        "You are an enterprise groupware AI assistant. "
+        "For company/internal questions, prioritize and rely on provided context. "
+        "If context is clearly unrelated to the question and the question is general common knowledge, "
+        "you may answer from general knowledge in Korean. "
+        "For real-time/live data questions (weather, stock, traffic, breaking news), do not guess. "
+        "Say you cannot verify live data right now and suggest a practical way to check. "
+        "Respond naturally and politely in Korean. "
         "Do not include bracket citations like [1], [2] in the answer."
     )
     user_prompt = (

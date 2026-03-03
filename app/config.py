@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     max_context_chunks: int = 5
     search_candidate_multiplier: int = 4
     allow_general_fallback: bool = True
+    general_fallback_min_score: float = 0.70
     max_upload_size_mb: int = 20
     bulk_ingest_dir: str = "/bulk_ingest"
     bulk_ingest_max_files: int = 1000
@@ -79,6 +80,8 @@ class Settings(BaseSettings):
             raise ValueError("MAX_CONTEXT_CHUNKS must be > 0")
         if self.search_candidate_multiplier <= 0:
             raise ValueError("SEARCH_CANDIDATE_MULTIPLIER must be > 0")
+        if not 0 <= self.general_fallback_min_score <= 1:
+            raise ValueError("GENERAL_FALLBACK_MIN_SCORE must be in [0, 1]")
         if self.ingest_embedding_batch_size <= 0:
             raise ValueError("INGEST_EMBEDDING_BATCH_SIZE must be > 0")
         if self.embedding_dimensions <= 0:
