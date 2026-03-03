@@ -83,6 +83,7 @@ function ChatMessage({ msg }) {
 
 export default function App() {
   const [healthState, setHealthState] = useState({ dot: "", text: "상태 확인 중..." });
+  const [isAdminOpen, setIsAdminOpen] = useState(false);
   const [messages, setMessages] = useState([
     {
       id: nextMessageId(),
@@ -95,11 +96,14 @@ export default function App() {
   const [isSending, setIsSending] = useState(false);
 
   const [question, setQuestion] = useState("");
-  const [chatSettings, setChatSettings] = useState({
-    user_id: "u-1001",
-    user_department: "",
-    user_roles: "",
-  });
+  const chatSettings = useMemo(
+    () => ({
+      user_id: "u-1001",
+      user_department: "",
+      user_roles: "",
+    }),
+    []
+  );
 
   const [textForm, setTextForm] = useState({
     title: "",
@@ -138,6 +142,16 @@ export default function App() {
     if (!threadRef.current) return;
     threadRef.current.scrollTop = threadRef.current.scrollHeight;
   }, [messages]);
+
+  useEffect(() => {
+    if (!isAdminOpen) return;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setIsAdminOpen(false);
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isAdminOpen]);
 
   async function refreshHealth() {
     setHealthState({ dot: "", text: "상태 확인 중..." });
@@ -308,18 +322,191 @@ export default function App() {
   return (
     <>
       <div className="bg-grid"></div>
+      <button
+        type="button"
+        className={`drawer-backdrop ${isAdminOpen ? "show" : ""}`}
+        onClick={() => setIsAdminOpen(false)}
+        aria-label="관리 메뉴 닫기"
+      />
+
+      <aside className={`admin-drawer ${isAdminOpen ? "open" : ""}`} aria-hidden={!isAdminOpen}>
+        <div className="admin-header">
+          <h2>관리 메뉴</h2>
+          <button type="button" className="drawer-close" onClick={() => setIsAdminOpen(false)}>
+            닫기
+          </button>
+        </div>
+
+        <details className="menu-item" open>
+          <summary>시스템 상태</summary>
+          <div className="menu-body">
+            <button type="button" onClick={refreshHealth}>
+              상태 새로고침
+            </button>
+          </div>
+        </details>
+
+        <details className="menu-item">
+          <summary>텍스트 문서 업로드</summary>
+          <div className="menu-body">
+            <form onSubmit={handleTextIngest}>
+              <label>
+                제목
+                <input
+                  value={textForm.title}
+                  onChange={(e) => setTextForm((prev) => ({ ...prev, title: e.target.value }))}
+                  required
+                  maxLength={255}
+                />
+              </label>
+              <label>
+                출처 이름
+                <input
+                  value={textForm.source_name}
+                  onChange={(e) => setTextForm((prev) => ({ ...prev, source_name: e.target.value }))}
+                  maxLength={255}
+                />
+              </label>
+              <label>
+                허용 부서
+                <input
+                  value={textForm.departments}
+                  onChange={(e) => setTextForm((prev) => ({ ...prev, departments: e.target.value }))}
+                  placeholder="HR, FIN"
+                />
+              </label>
+              <label>
+                허용 역할
+                <input
+                  value={textForm.roles}
+                  onChange={(e) => setTextForm((prev) => ({ ...prev, roles: e.target.value }))}
+                  placeholder="manager, hr_admin"
+                />
+              </label>
+              <label>
+                추가 메타데이터 JSON
+                <textarea
+                  rows="3"
+                  value={textForm.extra_metadata}
+                  onChange={(e) => setTextForm((prev) => ({ ...prev, extra_metadata: e.target.value }))}
+                  placeholder='{"policy_version":"2026.1"}'
+                ></textarea>
+              </label>
+              <label>
+                내용
+                <textarea
+                  rows="7"
+                  value={textForm.content}
+                  onChange={(e) => setTextForm((prev) => ({ ...prev, content: e.target.value }))}
+                  required
+                ></textarea>
+              </label>
+              <button type="submit">텍스트 업로드</button>
+            </form>
+            <pre className="output">{textResult}</pre>
+          </div>
+        </details>
+
+        <details className="menu-item">
+          <summary>파일 업로드</summary>
+          <div className="menu-body">
+            <form onSubmit={handleFileIngest}>
+              <label>
+                제목
+                <input
+                  value={fileForm.title}
+                  onChange={(e) => setFileForm((prev) => ({ ...prev, title: e.target.value }))}
+                  required
+                  maxLength={255}
+                />
+              </label>
+              <label>
+                출처 이름
+                <input
+                  value={fileForm.source_name}
+                  onChange={(e) => setFileForm((prev) => ({ ...prev, source_name: e.target.value }))}
+                  maxLength={255}
+                />
+              </label>
+              <label>
+                허용 부서
+                <input
+                  value={fileForm.departments}
+                  onChange={(e) => setFileForm((prev) => ({ ...prev, departments: e.target.value }))}
+                  placeholder="HR, FIN"
+                />
+              </label>
+              <label>
+                허용 역할
+                <input
+                  value={fileForm.roles}
+                  onChange={(e) => setFileForm((prev) => ({ ...prev, roles: e.target.value }))}
+                  placeholder="manager, hr_admin"
+                />
+              </label>
+              <label>
+                추가 메타데이터 JSON
+                <textarea
+                  rows="3"
+                  value={fileForm.extra_metadata}
+                  onChange={(e) => setFileForm((prev) => ({ ...prev, extra_metadata: e.target.value }))}
+                  placeholder='{"owner":"ops-team"}'
+                ></textarea>
+              </label>
+              <label>
+                파일 (.txt/.md/.pdf/.pptx/.png/.jpg/.jpeg/.bmp/.tiff)
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".txt,.md,.pdf,.pptx,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
+                  onChange={(e) => setSelectedFile(e.target.files && e.target.files.length ? e.target.files[0] : null)}
+                  required
+                />
+              </label>
+              <button type="submit">파일 업로드</button>
+            </form>
+            <pre className="output">{fileResult}</pre>
+          </div>
+        </details>
+
+        <details className="menu-item">
+          <summary>최근 문서</summary>
+          <div className="menu-body">
+            <button type="button" onClick={loadDocuments}>
+              목록 새로고침
+            </button>
+            <div className="table-wrap">{documentsTable}</div>
+          </div>
+        </details>
+
+        <details className="menu-item">
+          <summary>일괄처리</summary>
+          <div className="menu-body">
+            <p>지정 디렉토리와 ZIP 내부 지원 파일을 한 번에 인덱싱합니다.</p>
+            <button type="button" onClick={handleBulkIngest} disabled={isBulkRunning}>
+              {isBulkRunning ? "처리 중..." : "일괄처리"}
+            </button>
+            <pre className="output">{bulkResult}</pre>
+          </div>
+        </details>
+      </aside>
 
       <main className="container">
         <header className="hero">
           <p className="eyebrow">사내 AI 어시스턴트</p>
           <h1>ZIN AI bot</h1>
-          <div className="health health-compact">
-            <span className={`dot ${healthState.dot}`}></span>
-            <strong>{healthState.text}</strong>
+          <div className="hero-right">
+            <button type="button" className="admin-toggle" onClick={() => setIsAdminOpen(true)}>
+              관리 메뉴
+            </button>
+            <div className="health health-compact">
+              <span className={`dot ${healthState.dot}`}></span>
+              <strong>{healthState.text}</strong>
+            </div>
           </div>
         </header>
 
-        <section className="layout">
+        <section className="chat-shell">
           <article className="chat-card">
             <div ref={threadRef} className="chat-thread" aria-live="polite">
               {messages.map((msg) => (
@@ -347,195 +534,8 @@ export default function App() {
               <button type="submit" className="send-btn" disabled={isSending}>
                 {isSending ? "전송 중..." : "보내기"}
               </button>
-
-              <details className="inline-settings">
-                <summary>사용자 설정</summary>
-                <div className="inline-grid">
-                  <label>
-                    사용자 ID
-                    <input
-                      value={chatSettings.user_id}
-                      onChange={(e) => setChatSettings((prev) => ({ ...prev, user_id: e.target.value }))}
-                      required
-                    />
-                  </label>
-                  <label>
-                    부서
-                    <input
-                      value={chatSettings.user_department}
-                      onChange={(e) => setChatSettings((prev) => ({ ...prev, user_department: e.target.value }))}
-                      placeholder="HR"
-                    />
-                  </label>
-                  <label>
-                    역할(쉼표 구분)
-                    <input
-                      value={chatSettings.user_roles}
-                      onChange={(e) => setChatSettings((prev) => ({ ...prev, user_roles: e.target.value }))}
-                      placeholder="manager, employee"
-                    />
-                  </label>
-                </div>
-              </details>
             </form>
           </article>
-
-          <aside className="menu-card">
-            <h2>관리 메뉴</h2>
-
-            <details className="menu-item" open>
-              <summary>시스템 상태</summary>
-              <div className="menu-body">
-                <button type="button" onClick={refreshHealth}>
-                  상태 새로고침
-                </button>
-              </div>
-            </details>
-
-            <details className="menu-item">
-              <summary>텍스트 문서 업로드</summary>
-              <div className="menu-body">
-                <form onSubmit={handleTextIngest}>
-                  <label>
-                    제목
-                    <input
-                      value={textForm.title}
-                      onChange={(e) => setTextForm((prev) => ({ ...prev, title: e.target.value }))}
-                      required
-                      maxLength={255}
-                    />
-                  </label>
-                  <label>
-                    출처 이름
-                    <input
-                      value={textForm.source_name}
-                      onChange={(e) => setTextForm((prev) => ({ ...prev, source_name: e.target.value }))}
-                      maxLength={255}
-                    />
-                  </label>
-                  <label>
-                    허용 부서
-                    <input
-                      value={textForm.departments}
-                      onChange={(e) => setTextForm((prev) => ({ ...prev, departments: e.target.value }))}
-                      placeholder="HR, FIN"
-                    />
-                  </label>
-                  <label>
-                    허용 역할
-                    <input
-                      value={textForm.roles}
-                      onChange={(e) => setTextForm((prev) => ({ ...prev, roles: e.target.value }))}
-                      placeholder="manager, hr_admin"
-                    />
-                  </label>
-                  <label>
-                    추가 메타데이터 JSON
-                    <textarea
-                      rows="3"
-                      value={textForm.extra_metadata}
-                      onChange={(e) => setTextForm((prev) => ({ ...prev, extra_metadata: e.target.value }))}
-                      placeholder='{"policy_version":"2026.1"}'
-                    ></textarea>
-                  </label>
-                  <label>
-                    내용
-                    <textarea
-                      rows="7"
-                      value={textForm.content}
-                      onChange={(e) => setTextForm((prev) => ({ ...prev, content: e.target.value }))}
-                      required
-                    ></textarea>
-                  </label>
-                  <button type="submit">텍스트 업로드</button>
-                </form>
-                <pre className="output">{textResult}</pre>
-              </div>
-            </details>
-
-            <details className="menu-item">
-              <summary>파일 업로드</summary>
-              <div className="menu-body">
-                <form onSubmit={handleFileIngest}>
-                  <label>
-                    제목
-                    <input
-                      value={fileForm.title}
-                      onChange={(e) => setFileForm((prev) => ({ ...prev, title: e.target.value }))}
-                      required
-                      maxLength={255}
-                    />
-                  </label>
-                  <label>
-                    출처 이름
-                    <input
-                      value={fileForm.source_name}
-                      onChange={(e) => setFileForm((prev) => ({ ...prev, source_name: e.target.value }))}
-                      maxLength={255}
-                    />
-                  </label>
-                  <label>
-                    허용 부서
-                    <input
-                      value={fileForm.departments}
-                      onChange={(e) => setFileForm((prev) => ({ ...prev, departments: e.target.value }))}
-                      placeholder="HR, FIN"
-                    />
-                  </label>
-                  <label>
-                    허용 역할
-                    <input
-                      value={fileForm.roles}
-                      onChange={(e) => setFileForm((prev) => ({ ...prev, roles: e.target.value }))}
-                      placeholder="manager, hr_admin"
-                    />
-                  </label>
-                  <label>
-                    추가 메타데이터 JSON
-                    <textarea
-                      rows="3"
-                      value={fileForm.extra_metadata}
-                      onChange={(e) => setFileForm((prev) => ({ ...prev, extra_metadata: e.target.value }))}
-                      placeholder='{"owner":"ops-team"}'
-                    ></textarea>
-                  </label>
-                  <label>
-                    파일 (.txt/.md/.pdf/.pptx/.png/.jpg/.jpeg/.bmp/.tiff)
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".txt,.md,.pdf,.pptx,.png,.jpg,.jpeg,.bmp,.tif,.tiff"
-                      onChange={(e) => setSelectedFile(e.target.files && e.target.files.length ? e.target.files[0] : null)}
-                      required
-                    />
-                  </label>
-                  <button type="submit">파일 업로드</button>
-                </form>
-                <pre className="output">{fileResult}</pre>
-              </div>
-            </details>
-
-            <details className="menu-item">
-              <summary>최근 문서</summary>
-              <div className="menu-body">
-                <button type="button" onClick={loadDocuments}>
-                  목록 새로고침
-                </button>
-                <div className="table-wrap">{documentsTable}</div>
-              </div>
-            </details>
-
-            <details className="menu-item">
-              <summary>일괄처리</summary>
-              <div className="menu-body">
-                <p>지정 디렉토리와 ZIP 내부 지원 파일을 한 번에 인덱싱합니다.</p>
-                <button type="button" onClick={handleBulkIngest} disabled={isBulkRunning}>
-                  {isBulkRunning ? "처리 중..." : "일괄처리"}
-                </button>
-                <pre className="output">{bulkResult}</pre>
-              </div>
-            </details>
-          </aside>
         </section>
       </main>
     </>

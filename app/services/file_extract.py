@@ -2,7 +2,7 @@ from io import BytesIO
 
 import pypdfium2
 import pytesseract
-from PIL import Image
+from PIL import Image, ImageFilter, ImageOps
 from pypdf import PdfReader
 from pptx import Presentation
 
@@ -23,6 +23,36 @@ def _decode_plain_text(raw: bytes) -> str:
 def _content_score(text: str) -> int:
     # Normalize whitespace for rough quality scoring.
     return len(" ".join((text or "").split()))
+
+
+def _preprocess_image_for_ocr(image: Image.Image) -> Image.Image:
+    processed = image.convert("L")
+    processed = ImageOps.autocontrast(processed)
+    processed = processed.filter(ImageFilter.MedianFilter(size=3))
+
+    if min(processed.size) < 1400:
+        processed = processed.resize((processed.width * 2, processed.height * 2), Image.Resampling.LANCZOS)
+
+    processed = processed.point(lambda p: 255 if p > 150 else 0)
+    return processed
+
+
+def _ocr_with_best_config(image: Image.Image) -> str:
+    configs = [
+        "--oem 1 --psm 6",
+        "--oem 1 --psm 11",
+    ]
+    best_text = ""
+    best_score = -1
+
+    for config in configs:
+        text = pytesseract.image_to_string(image, lang=settings.ocr_tesseract_lang, config=config)
+        score = _content_score(text)
+        if score > best_score:
+            best_score = score
+            best_text = text
+
+    return best_text.strip()
 
 
 def _extract_pdf_text(raw: bytes) -> str:
@@ -48,7 +78,7 @@ def _extract_pdf_text_with_ocr(raw: bytes) -> str:
             bitmap = page.render(scale=scale)
             try:
                 image = bitmap.to_pil().convert("RGB")
-                text = pytesseract.image_to_string(image, lang=settings.ocr_tesseract_lang)
+                text = _ocr_with_best_config(_preprocess_image_for_ocr(image))
                 if text and text.strip():
                     lines.append(text.strip())
             finally:
@@ -61,7 +91,7 @@ def _extract_pdf_text_with_ocr(raw: bytes) -> str:
 
 def _extract_image_text_with_ocr(raw: bytes) -> str:
     with Image.open(BytesIO(raw)) as image:
-        text = pytesseract.image_to_string(image.convert("RGB"), lang=settings.ocr_tesseract_lang)
+        text = _ocr_with_best_config(_preprocess_image_for_ocr(image.convert("RGB")))
     return text.strip()
 
 
