@@ -381,22 +381,6 @@ export default function App() {
                 />
               </label>
               <label>
-                허용 부서
-                <input
-                  value={textForm.departments}
-                  onChange={(e) => setTextForm((prev) => ({ ...prev, departments: e.target.value }))}
-                  placeholder="HR, FIN"
-                />
-              </label>
-              <label>
-                허용 역할
-                <input
-                  value={textForm.roles}
-                  onChange={(e) => setTextForm((prev) => ({ ...prev, roles: e.target.value }))}
-                  placeholder="manager, hr_admin"
-                />
-              </label>
-              <label>
                 추가 메타데이터 JSON
                 <textarea
                   rows="3"
@@ -439,22 +423,6 @@ export default function App() {
                   value={fileForm.source_name}
                   onChange={(e) => setFileForm((prev) => ({ ...prev, source_name: e.target.value }))}
                   maxLength={255}
-                />
-              </label>
-              <label>
-                허용 부서
-                <input
-                  value={fileForm.departments}
-                  onChange={(e) => setFileForm((prev) => ({ ...prev, departments: e.target.value }))}
-                  placeholder="HR, FIN"
-                />
-              </label>
-              <label>
-                허용 역할
-                <input
-                  value={fileForm.roles}
-                  onChange={(e) => setFileForm((prev) => ({ ...prev, roles: e.target.value }))}
-                  placeholder="manager, hr_admin"
                 />
               </label>
               <label>
