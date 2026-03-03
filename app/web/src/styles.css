@@ -23,6 +23,7 @@ body {
     radial-gradient(860px 500px at -10% 22%, #f8fbfd 0%, transparent 58%), var(--paper);
   font-family: "Segoe UI", "Noto Sans KR", sans-serif;
   overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
 }
 
 .bg-grid {
@@ -191,12 +192,12 @@ body {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #f9fcfe;
-  padding: 10px;
+  padding: 12px;
 }
 
 .composer-label {
   display: block;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
 }
 
 label {
@@ -212,15 +213,21 @@ textarea {
   border-radius: 8px;
   border: 1px solid var(--line);
   padding: 10px 11px;
-  font: inherit;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1.35;
 }
 
 textarea {
   resize: vertical;
+  min-height: 88px;
 }
 
 .send-btn {
   margin-top: 0;
+  min-height: 52px;
+  font-size: 1.02rem;
+  border-radius: 10px;
 }
 
 button {
@@ -422,8 +429,35 @@ th {
 }
 
 @media (max-width: 980px) {
+  .container {
+    padding: 10px 12px 6px;
+  }
+
   .hero {
     align-items: flex-start;
+  }
+
+  .chat-card {
+    padding: 10px;
+  }
+
+  .chat-thread {
+    padding: 10px;
+  }
+
+  .chat-composer {
+    margin-top: 8px;
+    padding: 12px;
+  }
+
+  textarea {
+    min-height: 110px;
+    font-size: 16px;
+  }
+
+  .send-btn {
+    min-height: 58px;
+    font-size: 1.08rem;
   }
 
   .chat-thread {
