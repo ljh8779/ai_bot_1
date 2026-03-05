@@ -3,6 +3,7 @@ import re
 from time import sleep
 
 import httpx
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.config import get_settings
 
@@ -25,6 +26,68 @@ def _get_google_client() -> httpx.Client:
         base_url=settings.google_base_url.rstrip("/"),
         timeout=settings.llm_timeout_seconds,
     )
+
+
+@lru_cache
+def _get_chat_model():
+    provider = _provider()
+    if provider == GOOGLE_PROVIDER:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
+        return ChatGoogleGenerativeAI(
+            model=settings.google_chat_model,
+            google_api_key=_google_api_key(),
+            temperature=settings.llm_chat_temperature,
+            timeout=settings.llm_timeout_seconds,
+            max_retries=settings.llm_max_retries,
+        )
+
+    from langchain_ollama import ChatOllama
+
+    return ChatOllama(
+        model=settings.ollama_chat_model,
+        base_url=settings.ollama_base_url.rstrip("/"),
+        temperature=settings.llm_chat_temperature,
+        timeout=settings.llm_timeout_seconds,
+        num_retries=settings.llm_max_retries,
+    )
+
+
+@lru_cache
+def _get_embeddings_model():
+    provider = _provider()
+    if provider == GOOGLE_PROVIDER:
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+        return GoogleGenerativeAIEmbeddings(
+            model=settings.google_embedding_model,
+            google_api_key=_google_api_key(),
+            task_type="RETRIEVAL_DOCUMENT",
+        )
+
+    from langchain_ollama import OllamaEmbeddings
+
+    return OllamaEmbeddings(
+        model=settings.ollama_embedding_model,
+        base_url=settings.ollama_base_url.rstrip("/"),
+    )
+
+
+@lru_cache
+def _get_query_embeddings_model():
+    """Query용 임베딩 모델 (Google은 task_type이 다름)."""
+    provider = _provider()
+    if provider == GOOGLE_PROVIDER:
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+        return GoogleGenerativeAIEmbeddings(
+            model=settings.google_embedding_model,
+            google_api_key=_google_api_key(),
+            task_type="RETRIEVAL_QUERY",
+        )
+
+    # Ollama는 query/document 구분 없음
+    return _get_embeddings_model()
 
 
 def _with_retries(request_fn, provider: str):
@@ -183,131 +246,29 @@ def get_available_models() -> set[str]:
     raise RuntimeError(f"Unsupported LLM_PROVIDER: {provider}")
 
 
-def _google_embed_text(text: str, task_type: str) -> list[float]:
-    client = _get_google_client()
-    api_key = _google_api_key()
-
-    def _call() -> list[float]:
-        response = client.post(
-            f"/v1beta/models/{settings.google_embedding_model}:embedContent",
-            params={"key": api_key},
-            json={
-                "model": f"models/{settings.google_embedding_model}",
-                "content": {"parts": [{"text": text}]},
-                "taskType": task_type,
-                "outputDimensionality": settings.embedding_dimensions,
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
-        values = payload.get("embedding", {}).get("values", [])
-        if not isinstance(values, list) or not values:
-            raise RuntimeError("Google embedding API returned an empty vector.")
-        return [float(value) for value in values]
-
-    return _with_retries(_call, GOOGLE_PROVIDER)
-
-
 def get_embeddings(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
-
-    provider = _provider()
-    if provider == GOOGLE_PROVIDER:
-        return [_google_embed_text(text, "RETRIEVAL_DOCUMENT") for text in texts]
-
-    if provider != OLLAMA_PROVIDER:
-        raise RuntimeError(f"Unsupported LLM_PROVIDER: {provider}")
-
-    client = _get_ollama_client()
-    vectors: list[list[float]] = []
-    batch_size = settings.ingest_embedding_batch_size
-
-    for start in range(0, len(texts), batch_size):
-        batch = texts[start : start + batch_size]
-
-        def _call():
-            response = client.post(
-                "/api/embed",
-                json={
-                    "model": settings.ollama_embedding_model,
-                    "input": batch,
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-            embeddings = payload.get("embeddings", [])
-            if len(embeddings) != len(batch):
-                raise RuntimeError("Ollama embeddings length mismatch.")
-            return embeddings
-
-        vectors.extend(_with_retries(_call, provider))
-
-    return vectors
+    model = _get_embeddings_model()
+    return model.embed_documents(texts)
 
 
 def get_embedding(text: str) -> list[float]:
-    provider = _provider()
-    if provider == GOOGLE_PROVIDER:
-        return _google_embed_text(text, "RETRIEVAL_QUERY")
-    vectors = get_embeddings([text])
-    return vectors[0]
+    model = _get_query_embeddings_model()
+    return model.embed_query(text)
 
 
 def generate_answer(system_prompt: str, user_prompt: str) -> str:
-    provider = _provider()
-    if provider == GOOGLE_PROVIDER:
-        client = _get_google_client()
-        api_key = _google_api_key()
-
-        def _call():
-            response = client.post(
-                f"/v1beta/models/{settings.google_chat_model}:generateContent",
-                params={"key": api_key},
-                json={
-                    "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-                    "systemInstruction": {"parts": [{"text": system_prompt}]},
-                    "generationConfig": {"temperature": settings.llm_chat_temperature},
-                },
-            )
-            response.raise_for_status()
-            payload = response.json()
-            for candidate in payload.get("candidates", []):
-                content = candidate.get("content", {})
-                parts = content.get("parts", [])
-                text = "".join(str(part.get("text") or "") for part in parts if isinstance(part, dict)).strip()
-                if text:
-                    return text
-            block_reason = payload.get("promptFeedback", {}).get("blockReason")
-            if block_reason:
-                raise RuntimeError(f"Google response was blocked: {block_reason}")
-            raise RuntimeError("Google chat returned an empty response.")
-
-        return _with_retries(_call, provider)
-
-    if provider != OLLAMA_PROVIDER:
-        raise RuntimeError(f"Unsupported LLM_PROVIDER: {provider}")
-
-    client = _get_ollama_client()
-
-    def _call():
-        response = client.post(
-            "/api/chat",
-            json={
-                "model": settings.ollama_chat_model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "stream": False,
-                "options": {"temperature": settings.llm_chat_temperature},
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
-        content = payload.get("message", {}).get("content", "").strip()
-        if not content:
-            raise RuntimeError("Ollama chat returned an empty response.")
-        return content
-
-    return _with_retries(_call, provider)
+    chat = _get_chat_model()
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt),
+    ]
+    response = chat.invoke(messages)
+    content = response.content
+    if isinstance(content, list):
+        content = "".join(str(part) for part in content)
+    content = content.strip()
+    if not content:
+        raise RuntimeError(f"{_provider().capitalize()} chat returned an empty response.")
+    return content

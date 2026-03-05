@@ -265,6 +265,20 @@ def ingest_bulk_directory(db: Session = Depends(get_db)) -> BulkIngestResponse:
         raise HTTPException(status_code=500, detail=f"Bulk ingestion failed due to an internal error: {exc}") from exc
 
 
+@app.delete("/documents/all")
+def delete_all_documents(db: Session = Depends(get_db)) -> dict:
+    try:
+        chunk_count = db.query(DocumentChunk).delete()
+        doc_count = db.query(Document).delete()
+        db.commit()
+        logger.info("All documents deleted. documents=%d chunks=%d", doc_count, chunk_count)
+        return {"deleted_documents": doc_count, "deleted_chunks": chunk_count}
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete all documents.")
+        raise HTTPException(status_code=500, detail=f"초기화 실패: {exc}") from exc
+
+
 @app.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
     try:

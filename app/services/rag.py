@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import math
 import re
 from typing import Any
@@ -13,6 +14,8 @@ from app.schemas import SourceChunk
 from app.services.llm import generate_answer, get_embedding, get_embeddings
 from app.utils import chunk_text, normalize_text
 
+logger = logging.getLogger(__name__)
+
 settings = get_settings()
 FOLLOWUP_MARKERS = re.compile(
     r"(그거|그건|그럼|이거|저거|그쪽|거기|그건데|그거는|우리회사도|우리회사에서도|그럼 우리)",
@@ -20,6 +23,17 @@ FOLLOWUP_MARKERS = re.compile(
 )
 MAX_HISTORY_ITEMS = 8
 MAX_HISTORY_TEXT_LEN = 700
+
+_reranker_model = None
+
+
+def _get_reranker():
+    global _reranker_model
+    if _reranker_model is None:
+        from sentence_transformers import CrossEncoder
+
+        _reranker_model = CrossEncoder(settings.rerank_model)
+    return _reranker_model
 
 
 def _is_document_allowed(
@@ -119,16 +133,17 @@ def _to_source_chunk(
         source_name=doc.source_name,
         chunk_index=chunk.chunk_index,
         score=round(_distance_score(distance), 4),
-        excerpt=chunk.content[:220],
+        excerpt=chunk.content,
     )
 
 
 def _candidate_limit() -> int:
+    if settings.hybrid_search_enabled or settings.rerank_enabled:
+        return settings.rerank_candidates
     return settings.max_context_chunks * settings.search_candidate_multiplier
 
 
 def _strip_bracket_citations(text: str) -> str:
-    # Remove bracket-style numeric citations like [1], [2] from model output.
     cleaned = re.sub(r"(?:(?<=\s)|^)\[\d+\](?=\s|$|[.,!?])", "", text)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
@@ -258,37 +273,217 @@ def _is_low_confidence_retrieval(sources: list[SourceChunk]) -> bool:
     return best_score < settings.general_fallback_min_score
 
 
-def _search_chunks(
+# ---------------------------------------------------------------------------
+# Search pipeline: vector → BM25 → RRF → rerank
+# ---------------------------------------------------------------------------
+
+def _vector_search(
     db: Session,
     *,
     question_embedding: list[float],
     user_department: str | None,
-    user_roles: list[str],
-) -> list[SourceChunk]:
+    user_role_set: set[str],
+    limit: int,
+) -> list[tuple[SourceChunk, DocumentChunk]]:
+    """pgvector 코사인 거리 기반 벡터 검색."""
     distance = DocumentChunk.embedding.cosine_distance(question_embedding).label("distance")
     stmt = (
         select(DocumentChunk, Document, distance)
         .join(Document, Document.id == DocumentChunk.document_id)
         .order_by(distance.asc())
-        .limit(_candidate_limit())
+        .limit(limit)
     )
     rows = db.execute(stmt).all()
-    user_role_set = set(user_roles)
 
-    selected: list[SourceChunk] = []
+    results: list[tuple[SourceChunk, DocumentChunk]] = []
     for chunk, doc, dist in rows:
         if not _is_document_allowed(doc.metadata_json, user_department, user_role_set):
             continue
-        selected.append(
-            _to_source_chunk(
-                doc=doc,
-                chunk=chunk,
-                distance=float(dist),
+        sc = _to_source_chunk(doc=doc, chunk=chunk, distance=float(dist))
+        results.append((sc, chunk))
+    return results
+
+
+def _bm25_search(
+    db: Session,
+    *,
+    question: str,
+    user_department: str | None,
+    user_role_set: set[str],
+    limit: int,
+) -> list[tuple[SourceChunk, DocumentChunk]]:
+    """BM25 키워드 검색 (인메모리, 쿼리당 생성)."""
+    from rank_bm25 import BM25Okapi
+
+    # 모든 청크를 로드 (권한 필터링 포함)
+    stmt = (
+        select(DocumentChunk, Document)
+        .join(Document, Document.id == DocumentChunk.document_id)
+    )
+    rows = db.execute(stmt).all()
+
+    filtered: list[tuple[DocumentChunk, Document]] = []
+    for chunk, doc in rows:
+        if _is_document_allowed(doc.metadata_json, user_department, user_role_set):
+            filtered.append((chunk, doc))
+
+    if not filtered:
+        return []
+
+    # 토큰화 (공백 기반, 한국어에 충분)
+    corpus = [chunk.content.split() for chunk, _ in filtered]
+    bm25 = BM25Okapi(corpus)
+    query_tokens = question.split()
+    scores = bm25.get_scores(query_tokens)
+
+    # 점수 순으로 정렬하여 상위 limit개
+    scored = sorted(enumerate(scores), key=lambda x: x[1], reverse=True)[:limit]
+
+    results: list[tuple[SourceChunk, DocumentChunk]] = []
+    for idx, score in scored:
+        if score <= 0:
+            continue
+        chunk, doc = filtered[idx]
+        # BM25 점수를 0~1 범위로 정규화 (max score 기준)
+        max_score = scored[0][1] if scored[0][1] > 0 else 1.0
+        normalized_score = score / max_score
+        sc = SourceChunk(
+            document_id=doc.id,
+            title=doc.title,
+            source_name=doc.source_name,
+            chunk_index=chunk.chunk_index,
+            score=round(normalized_score, 4),
+            excerpt=chunk.content,
+        )
+        results.append((sc, chunk))
+    return results
+
+
+def _reciprocal_rank_fusion(
+    vector_results: list[tuple[SourceChunk, DocumentChunk]],
+    bm25_results: list[tuple[SourceChunk, DocumentChunk]],
+    bm25_weight: float,
+    limit: int,
+) -> list[tuple[SourceChunk, DocumentChunk]]:
+    """RRF로 벡터+BM25 결과를 합산."""
+    k = 60  # RRF 상수
+
+    # chunk_id 기준으로 합산
+    chunk_map: dict[str, tuple[SourceChunk, DocumentChunk]] = {}
+    rrf_scores: dict[str, float] = {}
+    vector_weight = 1.0 - bm25_weight
+
+    for rank, (sc, chunk) in enumerate(vector_results):
+        cid = f"{sc.document_id}:{sc.chunk_index}"
+        rrf_scores[cid] = rrf_scores.get(cid, 0.0) + vector_weight / (k + rank + 1)
+        if cid not in chunk_map:
+            chunk_map[cid] = (sc, chunk)
+
+    for rank, (sc, chunk) in enumerate(bm25_results):
+        cid = f"{sc.document_id}:{sc.chunk_index}"
+        rrf_scores[cid] = rrf_scores.get(cid, 0.0) + bm25_weight / (k + rank + 1)
+        if cid not in chunk_map:
+            chunk_map[cid] = (sc, chunk)
+
+    # RRF 점수로 정렬
+    sorted_ids = sorted(rrf_scores, key=rrf_scores.get, reverse=True)[:limit]
+
+    results: list[tuple[SourceChunk, DocumentChunk]] = []
+    max_rrf = rrf_scores[sorted_ids[0]] if sorted_ids else 1.0
+    for cid in sorted_ids:
+        sc, chunk = chunk_map[cid]
+        # RRF 점수를 0~1로 정규화하여 score 갱신
+        normalized = rrf_scores[cid] / max_rrf if max_rrf > 0 else 0.0
+        sc = SourceChunk(
+            document_id=sc.document_id,
+            title=sc.title,
+            source_name=sc.source_name,
+            chunk_index=sc.chunk_index,
+            score=round(normalized, 4),
+            excerpt=sc.excerpt,
+        )
+        results.append((sc, chunk))
+    return results
+
+
+def _rerank(
+    question: str,
+    candidates: list[tuple[SourceChunk, DocumentChunk]],
+    top_n: int,
+) -> list[SourceChunk]:
+    """Cross-encoder로 최종 리랭킹."""
+    if not candidates:
+        return []
+
+    reranker = _get_reranker()
+    pairs = [(question, sc.excerpt) for sc, _ in candidates]
+    scores = reranker.predict(pairs)
+
+    scored = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)[:top_n]
+    max_score = scored[0][0] if scored else 1.0
+    min_score = scored[-1][0] if scored else 0.0
+    score_range = max_score - min_score if max_score != min_score else 1.0
+
+    results: list[SourceChunk] = []
+    for score, (sc, _) in scored:
+        normalized = (score - min_score) / score_range
+        results.append(
+            SourceChunk(
+                document_id=sc.document_id,
+                title=sc.title,
+                source_name=sc.source_name,
+                chunk_index=sc.chunk_index,
+                score=round(max(0.0, min(1.0, normalized)), 4),
+                excerpt=sc.excerpt,
             )
         )
-        if len(selected) >= settings.max_context_chunks:
-            break
-    return selected
+    return results
+
+
+def _search_chunks(
+    db: Session,
+    *,
+    question: str,
+    question_embedding: list[float],
+    user_department: str | None,
+    user_roles: list[str],
+) -> list[SourceChunk]:
+    user_role_set = set(user_roles)
+    candidate_limit = _candidate_limit()
+
+    # 1단계: 벡터 검색
+    vector_results = _vector_search(
+        db,
+        question_embedding=question_embedding,
+        user_department=user_department,
+        user_role_set=user_role_set,
+        limit=candidate_limit,
+    )
+
+    # 2단계: 하이브리드 검색 (BM25 + RRF)
+    if settings.hybrid_search_enabled:
+        bm25_results = _bm25_search(
+            db,
+            question=question,
+            user_department=user_department,
+            user_role_set=user_role_set,
+            limit=candidate_limit,
+        )
+        merged = _reciprocal_rank_fusion(
+            vector_results,
+            bm25_results,
+            bm25_weight=settings.bm25_weight,
+            limit=candidate_limit,
+        )
+    else:
+        merged = vector_results
+
+    # 3단계: 리랭킹
+    if settings.rerank_enabled and merged:
+        return _rerank(question, merged, top_n=settings.rerank_top_n)
+
+    # 리랭킹 미사용 시 상위 N개만 반환
+    return [sc for sc, _ in merged[:settings.max_context_chunks]]
 
 
 def answer_question(
@@ -304,6 +499,7 @@ def answer_question(
     question_embedding = get_embedding(effective_question)
     sources = _search_chunks(
         db,
+        question=effective_question,
         question_embedding=question_embedding,
         user_department=user_department,
         user_roles=user_roles,
@@ -318,9 +514,9 @@ def answer_question(
     context_lines = []
     for idx, source in enumerate(sources, start=1):
         context_lines.append(
-            f"[{idx}] title={source.title} / source={source.source_name} / content={source.excerpt}"
+            f"[{idx}] title={source.title} / source={source.source_name}\n{source.excerpt}"
         )
-    context_text = "\n".join(context_lines)
+    context_text = "\n\n".join(context_lines)
 
     system_prompt = (
         "You are an enterprise groupware AI assistant. "

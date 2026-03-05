@@ -24,8 +24,8 @@ class Settings(BaseSettings):
     db_pool_timeout_seconds: int = 30
     db_pool_recycle_seconds: int = 1800
     embedding_dimensions: int = 768
-    chunk_size: int = 800
-    chunk_overlap: int = 120
+    chunk_size: int = 1500
+    chunk_overlap: int = 300
     ingest_embedding_batch_size: int = 64
     max_context_chunks: int = 5
     search_candidate_multiplier: int = 4
@@ -41,6 +41,14 @@ class Settings(BaseSettings):
     pdf_ocr_dpi: int = 200
     pdf_ocr_fallback_min_chars: int = 40
     ocr_tesseract_lang: str = "kor+eng"
+
+    # Hybrid search & reranking
+    hybrid_search_enabled: bool = True
+    bm25_weight: float = 0.3
+    rerank_enabled: bool = True
+    rerank_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
+    rerank_top_n: int = 5
+    rerank_candidates: int = 20
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
@@ -102,6 +110,14 @@ class Settings(BaseSettings):
             raise ValueError("PDF_OCR_FALLBACK_MIN_CHARS must be >= 0")
         if not self.ocr_tesseract_lang.strip():
             raise ValueError("OCR_TESSERACT_LANG must not be empty")
+        if not 0 <= self.bm25_weight <= 1:
+            raise ValueError("BM25_WEIGHT must be in [0, 1]")
+        if self.rerank_top_n <= 0:
+            raise ValueError("RERANK_TOP_N must be > 0")
+        if self.rerank_candidates <= 0:
+            raise ValueError("RERANK_CANDIDATES must be > 0")
+        if self.rerank_candidates < self.rerank_top_n:
+            raise ValueError("RERANK_CANDIDATES must be >= RERANK_TOP_N")
         return self
 
 

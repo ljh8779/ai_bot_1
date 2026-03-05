@@ -140,6 +140,8 @@ export default function App() {
 
   const [documents, setDocuments] = useState([]);
   const [documentsError, setDocumentsError] = useState("");
+  const [isResetting, setIsResetting] = useState(false);
+  const [resetResult, setResetResult] = useState("");
 
   const threadRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -298,6 +300,22 @@ export default function App() {
     }
   }
 
+  async function handleResetDocuments() {
+    if (isResetting) return;
+    if (!window.confirm("모든 문서를 삭제합니다. 이 작업은 되돌릴 수 없습니다.\n계속하시겠습니까?")) return;
+    setIsResetting(true);
+    setResetResult("초기화 중...");
+    try {
+      const result = await callApi("/documents/all", { method: "DELETE" });
+      setResetResult(`삭제 완료: 문서 ${result.deleted_documents}건, 청크 ${result.deleted_chunks}건`);
+      await loadDocuments();
+    } catch (err) {
+      setResetResult(`오류: ${err.message}`);
+    } finally {
+      setIsResetting(false);
+    }
+  }
+
   const documentsTable = useMemo(() => {
     if (documentsError) return <p>{documentsError}</p>;
     if (!documents.length) return <p>등록된 문서가 없습니다.</p>;
@@ -453,9 +471,20 @@ export default function App() {
         <details className="menu-item">
           <summary>최근 문서</summary>
           <div className="menu-body">
-            <button type="button" onClick={loadDocuments}>
-              목록 새로고침
-            </button>
+            <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+              <button type="button" onClick={loadDocuments}>
+                목록 새로고침
+              </button>
+              <button
+                type="button"
+                onClick={handleResetDocuments}
+                disabled={isResetting}
+                style={{ background: "#dc3545", color: "#fff", border: "none" }}
+              >
+                {isResetting ? "초기화 중..." : "전체 문서 초기화"}
+              </button>
+            </div>
+            {resetResult && <pre className="output">{resetResult}</pre>}
             <div className="table-wrap">{documentsTable}</div>
           </div>
         </details>

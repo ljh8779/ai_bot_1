@@ -1,5 +1,7 @@
 from collections.abc import Iterator
 
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+
 
 def normalize_text(text: str) -> str:
     return " ".join(text.replace("\r", "\n").split())
@@ -15,20 +17,15 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> Iterator[str]:
     if not normalized:
         return
 
-    start = 0
-    while start < len(normalized):
-        hard_end = min(start + chunk_size, len(normalized))
-        end = hard_end
-
-        # Prefer splitting at a whitespace boundary to reduce broken tokens.
-        if hard_end < len(normalized):
-            split_at = normalized.rfind(" ", start + max(1, chunk_size // 2), hard_end)
-            if split_at > start:
-                end = split_at
-
-        chunk = normalized[start:end].strip()
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=overlap,
+        separators=["\n\n", "\n", ". ", "? ", "! ", "。", " ", ""],
+        keep_separator=True,
+        strip_whitespace=True,
+    )
+    chunks = splitter.split_text(normalized)
+    for chunk in chunks:
+        chunk = chunk.strip()
         if chunk:
             yield chunk
-        if end == len(normalized):
-            break
-        start = max(end - overlap, start + 1)

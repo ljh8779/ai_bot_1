@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>AI Bot 1 - Workflow Diagram</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  body { font-family: 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; margin: 0; padding: 20px; }
+  h1 { text-align: center; color: #58a6ff; margin-bottom: 5px; }
+  h2 { text-align: center; color: #8b949e; font-weight: 400; font-size: 1rem; margin-top: 0; }
+  h3 { color: #58a6ff; border-bottom: 1px solid #30363d; padding-bottom: 8px; margin-top: 40px; }
+  .diagram-section { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 30px; margin: 20px auto; max-width: 1200px; overflow-x: auto; }
+  .mermaid { display: flex; justify-content: center; }
+  .mermaid svg { max-width: 100%; }
+  .legend { background: #161b22; border: 1px solid #30363d; border-radius: 10px; padding: 20px 30px; margin: 20px auto; max-width: 1200px; }
+  .legend table { width: 100%; border-collapse: collapse; }
+  .legend th { text-align: left; color: #58a6ff; padding: 8px; border-bottom: 1px solid #30363d; }
+  .legend td { padding: 8px; border-bottom: 1px solid #21262d; color: #c9d1d9; }
+  .legend td:first-child { font-weight: 600; color: #f0883e; white-space: nowrap; }
+</style>
+</head>
+<body>
+
+<h1>Groupware RAG Bot - System Workflow</h1>
+<h2>ai_bot_1 프로젝트 아키텍처 & 데이터 흐름</h2>
+
+<!-- 1. 전체 시스템 아키텍처 -->
+<h3>1. 전체 시스템 아키텍처</h3>
+<div class="diagram-section">
+<pre class="mermaid">
+graph TB
+    subgraph CLIENT["🖥️ Client Browser"]
+        UI["React Frontend<br/>(App.jsx)"]
+    end
+
+    subgraph PROXY["🔒 Reverse Proxy"]
+        CADDY["Caddy<br/>Auto HTTPS"]
+    end
+
+    subgraph APP["⚙️ FastAPI Backend"]
+        MAIN["main.py<br/>API Router"]
+        CONFIG["config.py<br/>Settings"]
+        RAG["rag.py<br/>RAG Core"]
+        LLM_SVC["llm.py<br/>LLM Service"]
+        FILE["file_extract.py<br/>File Parser"]
+        BULK["bulk_ingest.py<br/>Batch Ingest"]
+        UTILS["utils.py<br/>Chunking"]
+    end
+
+    subgraph DB["🗄️ Database"]
+        PG["PostgreSQL<br/>+ pgvector"]
+    end
+
+    subgraph LLM_EXT["🤖 LLM Provider"]
+        GEMINI["Google Gemini API"]
+        OLLAMA["Ollama Local"]
+    end
+
+    UI -->|HTTP/HTTPS| CADDY
+    CADDY -->|Reverse Proxy| MAIN
+    MAIN --> RAG
+    MAIN --> FILE
+    MAIN --> BULK
+    RAG --> LLM_SVC
+    RAG --> UTILS
+    RAG --> PG
+    BULK --> FILE
+    BULK --> RAG
+    LLM_SVC -->|Embedding & Chat| GEMINI
+    LLM_SVC -->|Embedding & Chat| OLLAMA
+    CONFIG -.->|Settings| MAIN
+    CONFIG -.->|Settings| RAG
+    CONFIG -.->|Settings| LLM_SVC
+
+    classDef client fill:#1f6feb,stroke:#58a6ff,color:#fff
+    classDef proxy fill:#238636,stroke:#3fb950,color:#fff
+    classDef app fill:#8957e5,stroke:#bc8cff,color:#fff
+    classDef db fill:#da3633,stroke:#f85149,color:#fff
+    classDef llm fill:#d29922,stroke:#e3b341,color:#000
+
+    class UI client
+    class CADDY proxy
+    class MAIN,CONFIG,RAG,LLM_SVC,FILE,BULK,UTILS app
+    class PG db
+    class GEMINI,OLLAMA llm
+</pre>
+</div>
+
+<!-- 2. 문서 수집(Ingestion) 플로우 -->
+<h3>2. 문서 수집 (Ingestion) 흐름</h3>
+<div class="diagram-section">
+<pre class="mermaid">
+flowchart LR
+    A["📄 파일 업로드<br/>(PDF/PPTX/TXT/IMG)"] --> B["file_extract.py<br/>파일 파싱"]
+    B --> B1{"파일 유형?"}
+    B1 -->|TXT/MD| B2["UTF-8 / CP949<br/>텍스트 디코딩"]
+    B1 -->|PDF| B3["PyPDF 텍스트 추출"]
+    B3 --> B3a{"텍스트 < 40자?"}
+    B3a -->|Yes| B4["Tesseract OCR<br/>(한국어+영어)"]
+    B3a -->|No| C
+    B1 -->|PPTX| B5["슬라이드별<br/>텍스트 추출"]
+    B1 -->|이미지| B4
+    B2 --> C
+    B4 --> C
+    B5 --> C
+
+    C["추출된 텍스트"] --> D["utils.py<br/>chunk_text()<br/>800자 / 120자 overlap"]
+    D --> E["SHA256<br/>중복 체크"]
+    E --> E1{"중복?"}
+    E1 -->|Yes| E2["기존 문서 ID 반환"]
+    E1 -->|No| F["llm.py<br/>Embedding 생성<br/>(768차원 벡터)"]
+    F --> G["PostgreSQL 저장<br/>Document + Chunks"]
+    G --> H["✅ 완료<br/>{doc_id, chunk_count}"]
+
+    style A fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style C fill:#238636,stroke:#3fb950,color:#fff
+    style F fill:#d29922,stroke:#e3b341,color:#000
+    style G fill:#da3633,stroke:#f85149,color:#fff
+    style H fill:#238636,stroke:#3fb950,color:#fff
+</pre>
+</div>
+
+<!-- 3. RAG 채팅 플로우 -->
+<h3>3. RAG 채팅 (질의응답) 흐름</h3>
+<div class="diagram-section">
+<pre class="mermaid">
+flowchart TD
+    Q["💬 사용자 질문"] --> A["질문 정규화"]
+    A --> B{"후속 질문?<br/>(그거/그건/그럼...)"}
+    B -->|Yes| C["LLM으로 독립 질문<br/>재작성"]
+    B -->|No| D
+    C --> D["질문 Embedding<br/>(768차원 벡터)"]
+    D --> E["pgvector<br/>코사인 유사도 검색<br/>(상위 20개 후보)"]
+    E --> F["ACL 필터링<br/>부서 & 역할 확인"]
+    F --> G["상위 5개 청크 선택"]
+    G --> H{"검색 결과?"}
+    H -->|"점수 >= 0.70"| I["컨텍스트 구성<br/>[1] title / source / content"]
+    H -->|"점수 < 0.70<br/>또는 결과 없음"| J{"일반 답변<br/>허용?"}
+    J -->|Yes| K["LLM 일반 지식<br/>답변 생성"]
+    J -->|No| L["❌ 관련 문서<br/>없음 응답"]
+    I --> M["LLM 답변 생성<br/>(시스템 프롬프트 + 컨텍스트)"]
+    M --> N["인용 표기 제거<br/>[1],[2] 삭제"]
+    N --> O["✅ 답변 + 출처 반환"]
+    K --> O
+
+    style Q fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style D fill:#d29922,stroke:#e3b341,color:#000
+    style E fill:#da3633,stroke:#f85149,color:#fff
+    style M fill:#8957e5,stroke:#bc8cff,color:#fff
+    style O fill:#238636,stroke:#3fb950,color:#fff
+    style L fill:#6e7681,stroke:#8b949e,color:#fff
+</pre>
+</div>
+
+<!-- 4. 접근제어(ACL) 흐름 -->
+<h3>4. 접근 제어 (ACL) 흐름</h3>
+<div class="diagram-section">
+<pre class="mermaid">
+flowchart LR
+    A["검색된 청크"] --> B{"allowed_departments<br/>설정됨?"}
+    B -->|"비어있음"| C["모든 부서 허용"]
+    B -->|"설정됨"| D{"사용자 부서<br/>∈ allowed?"}
+    D -->|Yes| E["부서 통과 ✅"]
+    D -->|No| H["접근 거부 ❌"]
+
+    C --> F{"allowed_roles<br/>설정됨?"}
+    E --> F
+    F -->|"비어있음"| G["모든 역할 허용 ✅"]
+    F -->|"설정됨"| I{"사용자 역할<br/>∩ allowed ≠ ∅?"}
+    I -->|Yes| G
+    I -->|No| H
+
+    style A fill:#1f6feb,stroke:#58a6ff,color:#fff
+    style G fill:#238636,stroke:#3fb950,color:#fff
+    style H fill:#da3633,stroke:#f85149,color:#fff
+</pre>
+</div>
+
+<!-- 5. 배포 아키텍처 -->
+<h3>5. Docker 배포 아키텍처</h3>
+<div class="diagram-section">
+<pre class="mermaid">
+graph TB
+    subgraph INTERNET["🌐 Internet"]
+        USER["사용자"]
+    end
+
+    subgraph DOCKER["🐳 Docker Compose"]
+        subgraph WEB_NET["web network"]
+            CADDY2["Caddy<br/>:80 / :443<br/>Auto HTTPS"]
+        end
+
+        subgraph BACKEND_NET["backend network"]
+            API["FastAPI App<br/>:8000<br/>uvicorn"]
+            DB2["PostgreSQL<br/>+ pgvector<br/>:5432"]
+            OLL["Ollama<br/>(선택)<br/>:11434"]
+        end
+    end
+
+    subgraph EXTERNAL["☁️ External"]
+        GOOGLE["Google<br/>Gemini API"]
+    end
+
+    subgraph VOLUMES["💾 Volumes"]
+        V1["pgdata"]
+        V2["ollama_data"]
+        V3["caddy_data"]
+        V4["bulk_ingest"]
+    end
+
+    USER -->|HTTPS| CADDY2
+    CADDY2 -->|Reverse Proxy| API
+    API -->|SQL + Vector| DB2
+    API -->|Embed + Chat| OLL
+    API -->|Embed + Chat| GOOGLE
+    DB2 --- V1
+    OLL --- V2
+    CADDY2 --- V3
+    API --- V4
+
+    classDef internet fill:#1f6feb,stroke:#58a6ff,color:#fff
+    classDef docker fill:#2ea043,stroke:#3fb950,color:#fff
+    classDef ext fill:#d29922,stroke:#e3b341,color:#000
+    classDef vol fill:#6e7681,stroke:#8b949e,color:#fff
+
+    class USER internet
+    class CADDY2,API,DB2,OLL docker
+    class GOOGLE ext
+    class V1,V2,V3,V4 vol
+</pre>
+</div>
+
+<!-- 6. API 엔드포인트 -->
+<h3>6. API 엔드포인트 맵</h3>
+<div class="diagram-section">
+<pre class="mermaid">
+flowchart LR
+    subgraph ENDPOINTS["FastAPI Endpoints"]
+        E1["GET /health<br/>시스템 상태"]
+        E2["GET /<br/>웹 UI"]
+        E3["GET /documents<br/>문서 목록"]
+        E4["POST /documents/text<br/>텍스트 수집"]
+        E5["POST /documents/file<br/>파일 업로드"]
+        E6["POST /documents/bulk<br/>일괄 수집"]
+        E7["POST /chat<br/>RAG 질의"]
+    end
+
+    subgraph SERVICES["Backend Services"]
+        S1["rag.py"]
+        S2["file_extract.py"]
+        S3["bulk_ingest.py"]
+        S4["llm.py"]
+    end
+
+    E4 --> S1
+    E5 --> S2
+    E5 --> S1
+    E6 --> S3
+    E7 --> S1
+    S1 --> S4
+    S3 --> S2
+    S3 --> S1
+
+    style E1 fill:#238636,stroke:#3fb950,color:#fff
+    style E7 fill:#8957e5,stroke:#bc8cff,color:#fff
+</pre>
+</div>
+
+<!-- 핵심 파일 매핑 -->
+<h3>7. 핵심 파일 & 역할</h3>
+<div class="legend">
+<table>
+<tr><th>파일</th><th>역할</th><th>주요 기능</th></tr>
+<tr><td>main.py</td><td>API 라우터</td><td>FastAPI 엔드포인트, Health Check, DB 초기화</td></tr>
+<tr><td>config.py</td><td>설정 관리</td><td>환경변수 로드, LLM Provider 선택, 검증</td></tr>
+<tr><td>db.py</td><td>DB 연결</td><td>SQLAlchemy 엔진, 커넥션 풀 (10+20)</td></tr>
+<tr><td>models.py</td><td>ORM 모델</td><td>Document, DocumentChunk (embedding vector 768차원)</td></tr>
+<tr><td>rag.py</td><td>RAG 핵심</td><td>문서 수집, 벡터 검색, ACL 필터링, 답변 생성</td></tr>
+<tr><td>llm.py</td><td>LLM 추상화</td><td>Google Gemini / Ollama 이중 지원, 재시도 로직</td></tr>
+<tr><td>file_extract.py</td><td>파일 파싱</td><td>PDF, PPTX, 이미지 OCR (한국어+영어)</td></tr>
+<tr><td>bulk_ingest.py</td><td>일괄 수집</td><td>디렉토리/ZIP 스캔, 최대 1000파일</td></tr>
+<tr><td>utils.py</td><td>텍스트 분할</td><td>800자 청크, 120자 오버랩</td></tr>
+<tr><td>App.jsx</td><td>프론트엔드</td><td>채팅 UI, 문서 업로드, 관리 패널</td></tr>
+</table>
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    darkMode: true,
+    background: '#161b22',
+    primaryColor: '#238636',
+    primaryTextColor: '#e6edf3',
+    lineColor: '#8b949e',
+    fontSize: '14px'
+  },
+  flowchart: {
+    htmlLabels: true,
+    curve: 'basis',
+    nodeSpacing: 30,
+    rankSpacing: 50
+  }
+});
+</script>
+
+</body>
+</html>
