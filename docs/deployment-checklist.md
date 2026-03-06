@@ -20,6 +20,7 @@
 
 ## Deploy
 
+- [ ] If `git pull` is blocked by `.env.prod`, run: `bash scripts/safe_pull_prod.sh`
 - [ ] `cp .env.prod.example .env.prod`
 - [ ] Fill all required values in `.env.prod`
 - [ ] Run: `bash scripts/deploy_prod.sh`
@@ -38,4 +39,3 @@
 - [ ] Monitor container restarts and API health.
 - [ ] Rotate credentials periodically.
 - [ ] Keep Docker image and base OS updated.
-

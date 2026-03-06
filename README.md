@@ -125,6 +125,21 @@ sudo chown $USER:$USER /opt/ai_bot_folder
 bash scripts/deploy_prod.sh
 ```
 
+### Update Code Safely On EC2 (`.env.prod` merge-safe)
+
+If `git pull` fails with:
+`your local changes to the following files would be overwritten by merge: .env.prod`
+
+run:
+
+```bash
+bash scripts/safe_pull_prod.sh
+```
+
+- This script backs up `.env.prod`, performs `git pull --rebase`, restores `.env.prod`, and marks it with `skip-worktree`.
+- To track `.env.prod` again:
+  - `git update-index --no-skip-worktree .env.prod`
+
 ### EC2 One-Click (Install + Configure + Deploy)
 
 ```bash
