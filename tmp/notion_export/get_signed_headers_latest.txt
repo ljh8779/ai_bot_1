@@ -1,0 +1,33 @@
+HTTP/1.1 200 OK
+Date: Thu, 05 Mar 2026 09:13:14 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 21
+Connection: keep-alive
+Server: cloudflare
+CF-Ray: 9d7800e60e25eaad-ICN
+CF-Cache-Status: DYNAMIC
+ETag: W/"15-TFIu4ZH2VkQ0QvgTNgHL4sIKrI4"
+Set-Cookie: notion_browser_id=31ac853d-dd89-45b8-a4fa-a2b293a40118; Domain=www.notion.so; Path=/; Expires=Fri, 05 Mar 2027 09:13:14 GMT; Secure
+Set-Cookie: device_id=31ad872b-594c-81f6-8c93-003bbf6a9c37; Domain=www.notion.so; Path=/; Expires=Fri, 05 Mar 2027 09:13:14 GMT; HttpOnly; Secure
+Set-Cookie: notion_check_cookie_consent=false; Domain=www.notion.so; Path=/; Expires=Fri, 06 Mar 2026 09:13:14 GMT; Secure
+Set-Cookie: __cf_bm=Y6LOWFFcbEGMd2rC_BFpUePOjCiM3T.SbL3J6U59Ra8-1772701994-1.0.1.1-JvKKdctmjqYL.5Rq.REU356J.nlwLpCSND8qHtel8XIy6b6H7NE67tPc4KpljFWF_Sbi2B2AHTE1s403Et5hVnq8t6BKQzGEXaTjO2ICwfQ; path=/; expires=Thu, 05-Mar-26 09:43:14 GMT; domain=.notion.so; HttpOnly; Secure; SameSite=None
+Set-Cookie: _cfuvid=PIrRDv7r1oFkdQOB7.0UUNT1o.lI_uabb9xfcwqDX90-1772701994053-0.0.1.1-604800000; path=/; domain=.notion.so; HttpOnly; Secure; SameSite=None
+Set-Cookie: __cf_bm=qRf7WOSSZaMpgeDCQAycRL0KJ8LV5MSwjVXItcG0tOM-1772701994-1.0.1.1-nZ6noUqXYE0wIdC_p6XhA7mToBUwk4ArTUDxQfS2yJv7uJyXvhZrofv67BNiHBt3X6h58gq3BVZ2hPFVo8FxQHhPefizCcK9tp9gOqfRM.I; path=/; expires=Thu, 05-Mar-26 09:43:14 GMT; domain=.notion.so; HttpOnly; Secure; SameSite=None
+Set-Cookie: _cfuvid=OefYZ44Trs8X6XX.lTmF08TjQMCHj0P5IJc6DPCO.2Y-1772701994132-0.0.1.1-604800000; path=/; domain=.notion.so; HttpOnly; Secure; SameSite=None
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+Vary: Accept-Encoding
+alt-svc: h3=":443"; ma=86400
+content-security-policy: default-src 'none'
+nel: {"success_fraction":0.01,"report_to":"cf-nel","max_age":604800}
+referrer-policy: strict-origin-when-cross-origin
+report-to: {"endpoints":[{"url":"https:\/\/a.nel.cloudflare.com\/report\/v4?s=01Ye4Wns%2F5PClhHgqzpkWCrTK02qZvsJKafypjyQok0Se%2FvwrY78iK2dMnV7Zw8GzFqXFfV4eDwIAIqSWqzzEfNtgmfBUCQuK3pRyY%2FF5icTtgoi%2FpVm1MbbH4vQadk%3D"}],"group":"cf-nel","max_age":604800}
+server-timing: r;dur=602
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-notion-cell-mapping: space-id 61bb966c-c019-81c9-84c7-0003aa8dd8a1=prod-space-usw2-0004
+x-notion-request-id: ecbc3f00-95c6-4118-b50d-8c02ce00387a
+x-permitted-cross-domain-policies: none
+x-xss-protection: 0
+

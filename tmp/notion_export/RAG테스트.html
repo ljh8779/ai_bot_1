@@ -1,0 +1,122 @@
+﻿<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>RAG테스트 - Notion Export</title>
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --ink: #1f2937;
+      --sub: #4b5563;
+      --line: #e5e7eb;
+      --accent: #0f766e;
+      --accent-2: #115e59;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Noto Sans KR", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: linear-gradient(180deg, #eef7f6 0%, var(--bg) 100%);
+    }
+    .wrap {
+      max-width: 980px;
+      margin: 40px auto;
+      padding: 0 20px;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 22px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.04);
+    }
+    h1 {
+      margin: 0 0 8px;
+      font-size: 28px;
+      line-height: 1.25;
+    }
+    .meta {
+      color: var(--sub);
+      font-size: 14px;
+      margin-bottom: 20px;
+    }
+    .image-box {
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      overflow: hidden;
+      background: #fafafa;
+      margin-bottom: 18px;
+    }
+    .image-box img {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+    .text {
+      font-size: 18px;
+      line-height: 1.8;
+      padding: 14px 0;
+      border-top: 1px dashed var(--line);
+      border-bottom: 1px dashed var(--line);
+      margin-bottom: 18px;
+    }
+    .file {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: #fbfffe;
+    }
+    .file .name {
+      font-weight: 600;
+    }
+    .btn {
+      text-decoration: none;
+      color: #fff;
+      background: var(--accent);
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 14px;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--accent-2); }
+    .note {
+      margin-top: 12px;
+      font-size: 13px;
+      color: var(--sub);
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <section class="card">
+      <h1>RAG테스트</h1>
+      <div class="meta">원본 Notion 페이지: <a href="https://www.notion.so/31ab966cc01980a6abcef5dc2f39112e" target="_blank" rel="noopener noreferrer">https://www.notion.so/31ab966cc01980a6abcef5dc2f39112e</a></div>
+
+      <div class="image-box">
+        <img alt="RAG테스트 이미지" src="./assets/ragtest-image.png" />
+      </div>
+      <div class="meta">이미지 파일 경로: <code>./assets/ragtest-image.png</code></div>
+
+      <div class="text">데이터 데이터</div>
+
+      <div class="file">
+        <div>
+          <div class="name">차량운행일지_메뉴얼.pdf</div>
+          <div class="meta">로컬/외부 스토리지 첨부 파일</div>
+        </div>
+        <a class="btn" href="./assets/차량운행일지_메뉴얼.pdf" target="_blank" rel="noopener noreferrer">PDF 열기</a>
+      </div>
+
+      <div class="note">참고: 이 HTML은 Notion 링크가 아니라 <code>./assets</code> 폴더의 파일을 직접 참조합니다.</div>
+    </section>
+  </div>
+</body>
+</html>
+

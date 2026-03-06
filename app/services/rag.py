@@ -30,9 +30,16 @@ _reranker_model = None
 def _get_reranker():
     global _reranker_model
     if _reranker_model is None:
-        from sentence_transformers import CrossEncoder
-
-        _reranker_model = CrossEncoder(settings.rerank_model)
+        try:
+            from sentence_transformers import CrossEncoder
+        except Exception as exc:
+            logger.warning("Reranker import failed. Falling back without rerank. detail=%s", exc)
+            return None
+        try:
+            _reranker_model = CrossEncoder(settings.rerank_model)
+        except Exception as exc:
+            logger.warning("Reranker model load failed. Falling back without rerank. detail=%s", exc)
+            return None
     return _reranker_model
 
 
@@ -313,7 +320,11 @@ def _bm25_search(
     limit: int,
 ) -> list[tuple[SourceChunk, DocumentChunk]]:
     """BM25 키워드 검색 (인메모리, 쿼리당 생성)."""
-    from rank_bm25 import BM25Okapi
+    try:
+        from rank_bm25 import BM25Okapi
+    except Exception as exc:
+        logger.warning("BM25 unavailable. Falling back to vector-only search. detail=%s", exc)
+        return []
 
     # 모든 청크를 로드 (권한 필터링 포함)
     stmt = (
@@ -416,6 +427,8 @@ def _rerank(
         return []
 
     reranker = _get_reranker()
+    if reranker is None:
+        return [sc for sc, _ in candidates[:top_n]]
     pairs = [(question, sc.excerpt) for sc, _ in candidates]
     scores = reranker.predict(pairs)
 

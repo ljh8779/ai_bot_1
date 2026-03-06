@@ -265,6 +265,25 @@ def ingest_bulk_directory(db: Session = Depends(get_db)) -> BulkIngestResponse:
         raise HTTPException(status_code=500, detail=f"Bulk ingestion failed due to an internal error: {exc}") from exc
 
 
+@app.delete("/documents/uploaded")
+def delete_uploaded_documents(db: Session = Depends(get_db)) -> dict:
+    try:
+        chunk_count = (
+            db.query(func.count(DocumentChunk.id))
+            .join(Document, Document.id == DocumentChunk.document_id)
+            .filter(Document.source_type == "file")
+            .scalar()
+        )
+        doc_count = db.query(Document).filter(Document.source_type == "file").delete(synchronize_session=False)
+        db.commit()
+        logger.info("Uploaded documents deleted. documents=%d chunks=%d", doc_count, chunk_count or 0)
+        return {"deleted_documents": int(doc_count or 0), "deleted_chunks": int(chunk_count or 0)}
+    except Exception as exc:
+        db.rollback()
+        logger.exception("Failed to delete uploaded documents.")
+        raise HTTPException(status_code=500, detail=f"Uploaded document delete failed: {exc}") from exc
+
+
 @app.delete("/documents/all")
 def delete_all_documents(db: Session = Depends(get_db)) -> dict:
     try:
@@ -276,7 +295,7 @@ def delete_all_documents(db: Session = Depends(get_db)) -> dict:
     except Exception as exc:
         db.rollback()
         logger.exception("Failed to delete all documents.")
-        raise HTTPException(status_code=500, detail=f"초기화 실패: {exc}") from exc
+        raise HTTPException(status_code=500, detail=f"Reset failed: {exc}") from exc
 
 
 @app.post("/chat", response_model=ChatResponse)
@@ -293,5 +312,7 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     except Exception as exc:
+        logger.exception("Chat failed.")
         raise HTTPException(status_code=500, detail="Chat failed due to an internal error.") from exc
     return ChatResponse(answer=answer, sources=sources)
+

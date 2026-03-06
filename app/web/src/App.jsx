@@ -141,6 +141,7 @@ export default function App() {
   const [documents, setDocuments] = useState([]);
   const [documentsError, setDocumentsError] = useState("");
   const [isResetting, setIsResetting] = useState(false);
+  const [isDeletingUploaded, setIsDeletingUploaded] = useState(false);
   const [resetResult, setResetResult] = useState("");
 
   const threadRef = useRef(null);
@@ -316,6 +317,22 @@ export default function App() {
     }
   }
 
+  async function handleDeleteUploadedDocuments() {
+    if (isDeletingUploaded) return;
+    if (!window.confirm("업로드(file) 문서만 삭제합니다. 이 작업은 되돌릴 수 없습니다.\n계속하시겠습니까?")) return;
+    setIsDeletingUploaded(true);
+    setResetResult("업로드 문서 삭제 중...");
+    try {
+      const result = await callApi("/documents/uploaded", { method: "DELETE" });
+      setResetResult(`업로드 삭제 완료: 문서 ${result.deleted_documents}건, 청크 ${result.deleted_chunks}건`);
+      await loadDocuments();
+    } catch (err) {
+      setResetResult(`오류: ${err.message}`);
+    } finally {
+      setIsDeletingUploaded(false);
+    }
+  }
+
   const documentsTable = useMemo(() => {
     if (documentsError) return <p>{documentsError}</p>;
     if (!documents.length) return <p>등록된 문서가 없습니다.</p>;
@@ -468,12 +485,20 @@ export default function App() {
           </div>
         </details>
 
-        <details className="menu-item">
+        <details className="menu-item" open>
           <summary>최근 문서</summary>
           <div className="menu-body">
-            <div style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
+            <div className="action-row">
               <button type="button" onClick={loadDocuments}>
                 목록 새로고침
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteUploadedDocuments}
+                disabled={isDeletingUploaded}
+                style={{ background: "#e36b2c", color: "#fff", border: "none" }}
+              >
+                {isDeletingUploaded ? "삭제 중..." : "업로드 문서 삭제"}
               </button>
               <button
                 type="button"

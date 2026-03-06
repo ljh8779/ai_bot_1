@@ -1,0 +1,30 @@
+HTTP/1.1 400 Bad Request
+Date: Thu, 05 Mar 2026 09:18:26 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 147
+Connection: keep-alive
+Server: cloudflare
+CF-Ray: 9d7808843d05306e-ICN
+CF-Cache-Status: DYNAMIC
+ETag: W/"93-AbnfjFct62ys07fbQJYnTJCUKSM"
+Set-Cookie: notion_browser_id=bf761a2f-de61-4c0c-85d6-dac71c62d86c; Domain=www.notion.so; Path=/; Expires=Fri, 05 Mar 2027 09:18:26 GMT; Secure
+Set-Cookie: device_id=31ad872b-594c-8187-96ad-003b507ee72c; Domain=www.notion.so; Path=/; Expires=Fri, 05 Mar 2027 09:18:26 GMT; HttpOnly; Secure
+Set-Cookie: notion_check_cookie_consent=false; Domain=www.notion.so; Path=/; Expires=Fri, 06 Mar 2026 09:18:26 GMT; Secure
+Set-Cookie: __cf_bm=zrvh4tav_qTqhd6uvojS9da3tZnPrPPoulcWgtacjQ4-1772702306-1.0.1.1-iA.wHxhBws9SVniEtWjQ5xYJ4MpOPtUv8K4ww44x96VUEktJpGDSZc62iknprg7HD0swnQM1IC7VdaS_phVKQixwK6tPFiJB8r64Sv_W5uA; path=/; expires=Thu, 05-Mar-26 09:48:26 GMT; domain=.notion.so; HttpOnly; Secure; SameSite=None
+Set-Cookie: _cfuvid=UsZ8OOBZKm2.yHyge3RjoP9wo8ds._ZzWfaBrut4U_Q-1772702306127-0.0.1.1-604800000; path=/; domain=.notion.so; HttpOnly; Secure; SameSite=None
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+Vary: Accept-Encoding
+content-security-policy: default-src 'none'
+referrer-policy: strict-origin-when-cross-origin
+server-timing: r;dur=245
+x-content-type-options: nosniff
+x-dns-prefetch-control: off
+x-download-options: noopen
+x-frame-options: SAMEORIGIN
+x-notion-request-id: bc871cf1-a130-461b-a357-fda2be83f03c
+x-permitted-cross-domain-policies: none
+x-xss-protection: 0
+Report-To: {"endpoints":[{"url":"https:\/\/a.nel.cloudflare.com\/report\/v4?s=FdYymAMV2lVhzcQd5CKA2h7mytPsAmYTrSpFweYUHsrGoz%2Bs09ixkebYSi31L0JoO3pxf3Sw%2BDJ2032HruB90ona%2FaNOUVx5ogp%2Foh7%2BylRo%2BAJrLGrq2e42eZPJj5E%3D"}],"group":"cf-nel","max_age":604800}
+NEL: {"success_fraction":0.01,"report_to":"cf-nel","max_age":604800}
+alt-svc: h3=":443"; ma=86400
+
