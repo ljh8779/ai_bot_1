@@ -25,6 +25,33 @@ if [[ -z "${BULK_INGEST_HOST_DIR:-}" ]]; then
   exit 1
 fi
 
+if [[ -z "${DOMAIN:-}" ]]; then
+  echo "DOMAIN is not set in .env.prod" >&2
+  exit 1
+fi
+
+if [[ -z "${ACME_EMAIL:-}" ]]; then
+  echo "ACME_EMAIL is not set in .env.prod" >&2
+  exit 1
+fi
+
+if [[ "${DOMAIN}" == "chat.example.com" || "${DOMAIN}" == "example.com" || "${DOMAIN}" == *.example.com ]]; then
+  echo "DOMAIN appears to be a placeholder: ${DOMAIN}" >&2
+  echo "Set a real domain in .env.prod before deploy." >&2
+  exit 1
+fi
+
+if [[ "${ACME_EMAIL}" == "ops@example.com" || "${ACME_EMAIL}" == *@example.com ]]; then
+  echo "ACME_EMAIL appears to be a placeholder: ${ACME_EMAIL}" >&2
+  echo "Set a real email in .env.prod before deploy." >&2
+  exit 1
+fi
+
+if ! [[ "${ACME_EMAIL}" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]]; then
+  echo "ACME_EMAIL format is invalid: ${ACME_EMAIL}" >&2
+  exit 1
+fi
+
 mkdir -p "${BULK_INGEST_HOST_DIR}"
 
 docker compose -f "${COMPOSE_FILE}" --env-file "${ENV_FILE}" pull

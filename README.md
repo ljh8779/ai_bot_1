@@ -112,6 +112,8 @@ Edit `.env.prod`:
 - `DATABASE_URL` (must match DB credentials)
 - `BULK_INGEST_HOST_DIR` (default `/opt/ai_bot_folder`)
 
+`scripts/deploy_prod.sh` validates `DOMAIN`/`ACME_EMAIL` and will fail fast if placeholder values like `chat.example.com` or `ops@example.com` are still set.
+
 ### 2) Create bulk ingest host directory
 
 ```bash
