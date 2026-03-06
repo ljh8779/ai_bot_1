@@ -396,6 +396,36 @@ button:hover {
   overflow-wrap: anywhere;
 }
 
+.bulk-drop-zone {
+  margin-top: 10px;
+  border: 2px dashed #8bc4cf;
+  border-radius: 12px;
+  background: #f2fbfd;
+  padding: 12px;
+  transition: border-color 120ms ease-out, background-color 120ms ease-out;
+}
+
+.bulk-drop-zone.active {
+  border-color: #1699a8;
+  background: #e7f8fb;
+}
+
+.bulk-drop-title {
+  margin: 0;
+  font-weight: 700;
+  color: #164d66;
+}
+
+.bulk-drop-hint {
+  margin: 6px 0 10px;
+  color: #486477;
+  font-size: 0.9rem;
+}
+
+.bulk-pick-btn {
+  margin-top: 0;
+}
+
 .table-wrap {
   overflow-x: auto;
   margin-top: 10px;

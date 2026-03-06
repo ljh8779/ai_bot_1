@@ -48,6 +48,15 @@ function nextMessageId() {
 }
 
 const ASSISTANT_WELCOME_TEXT = "질문을 입력해 주세요. 업로드된 문서를 기반으로 답변하고 출처를 함께 보여드립니다.";
+const BULK_UPLOAD_ACCEPT = ".txt,.md,.pdf,.pptx,.png,.jpg,.jpeg,.bmp,.tif,.tiff";
+const SUPPORTED_BULK_UPLOAD_SUFFIXES = new Set([".txt", ".md", ".pdf", ".pptx", ".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff"]);
+
+function deriveTitleFromFilename(filename) {
+  const safe = String(filename || "").trim();
+  const base = safe.replace(/\.[^.]+$/, "").trim();
+  const resolved = base || safe || "untitled";
+  return resolved.slice(0, 255);
+}
 
 function buildChatHistory(messages) {
   return messages
@@ -137,6 +146,8 @@ export default function App() {
   const [fileResult, setFileResult] = useState("");
   const [bulkResult, setBulkResult] = useState("");
   const [isBulkRunning, setIsBulkRunning] = useState(false);
+  const [isBulkUploading, setIsBulkUploading] = useState(false);
+  const [isBulkDropActive, setIsBulkDropActive] = useState(false);
 
   const [documents, setDocuments] = useState([]);
   const [documentsError, setDocumentsError] = useState("");
@@ -146,6 +157,7 @@ export default function App() {
 
   const threadRef = useRef(null);
   const fileInputRef = useRef(null);
+  const bulkDropInputRef = useRef(null);
 
   useEffect(() => {
     refreshHealth();
@@ -287,7 +299,7 @@ export default function App() {
   }
 
   async function handleBulkIngest() {
-    if (isBulkRunning) return;
+    if (isBulkRunning || isBulkUploading) return;
     setIsBulkRunning(true);
     setBulkResult("일괄처리 중...");
     try {
@@ -299,6 +311,104 @@ export default function App() {
     } finally {
       setIsBulkRunning(false);
     }
+  }
+
+  async function ingestDroppedFiles(fileList) {
+    if (isBulkUploading || isBulkRunning) return;
+
+    const files = Array.from(fileList || []);
+    if (!files.length) {
+      setBulkResult("파일이 없습니다.");
+      return;
+    }
+
+    setIsBulkUploading(true);
+    let ingestedFiles = 0;
+    let skippedFiles = 0;
+    let failedFiles = 0;
+    let totalChunks = 0;
+    const details = [];
+
+    try {
+      for (let idx = 0; idx < files.length; idx += 1) {
+        const file = files[idx];
+        setBulkResult(`드래그 업로드 처리 중... (${idx + 1}/${files.length})`);
+
+        const filename = file?.name || "";
+        const dotIndex = filename.lastIndexOf(".");
+        const suffix = dotIndex >= 0 ? filename.slice(dotIndex).toLowerCase() : "";
+        if (!SUPPORTED_BULK_UPLOAD_SUFFIXES.has(suffix)) {
+          skippedFiles += 1;
+          details.push({
+            source_path: filename,
+            status: "skipped",
+            message: `지원하지 않는 확장자: ${suffix || "(없음)"}`,
+          });
+          continue;
+        }
+
+        try {
+          const data = new FormData();
+          data.append("title", deriveTitleFromFilename(filename));
+          data.append("source_name", "드래그앤드롭");
+          data.append("metadata_json", "{}");
+          data.append("file", file);
+
+          const result = await callApi("/documents/file", { method: "POST", body: data });
+          ingestedFiles += 1;
+          totalChunks += Number(result.chunk_count || 0);
+          details.push({
+            source_path: filename,
+            status: "ingested",
+            document_id: result.document_id,
+            chunk_count: result.chunk_count,
+          });
+        } catch (err) {
+          failedFiles += 1;
+          details.push({
+            source_path: filename,
+            status: "failed",
+            message: err.message,
+          });
+        }
+      }
+
+      setBulkResult(
+        formatOutput({
+          root_directory: "browser-dnd",
+          scanned_files: files.length,
+          ingested_files: ingestedFiles,
+          skipped_files: skippedFiles,
+          failed_files: failedFiles,
+          total_chunks: totalChunks,
+          details,
+        })
+      );
+      await loadDocuments();
+    } finally {
+      setIsBulkUploading(false);
+      if (bulkDropInputRef.current) bulkDropInputRef.current.value = "";
+    }
+  }
+
+  function handleBulkDrop(event) {
+    event.preventDefault();
+    setIsBulkDropActive(false);
+    void ingestDroppedFiles(event.dataTransfer?.files);
+  }
+
+  function handleBulkDragOver(event) {
+    event.preventDefault();
+    if (!isBulkDropActive) setIsBulkDropActive(true);
+  }
+
+  function handleBulkDragLeave(event) {
+    event.preventDefault();
+    setIsBulkDropActive(false);
+  }
+
+  function handleBulkFilePick(event) {
+    void ingestDroppedFiles(event.target.files);
   }
 
   async function handleResetDocuments() {
@@ -518,9 +628,35 @@ export default function App() {
           <summary>일괄처리</summary>
           <div className="menu-body">
             <p>지정 디렉토리와 ZIP 내부 지원 파일을 한 번에 인덱싱합니다.</p>
-            <button type="button" onClick={handleBulkIngest} disabled={isBulkRunning}>
-              {isBulkRunning ? "처리 중..." : "일괄처리"}
+            <button type="button" onClick={handleBulkIngest} disabled={isBulkRunning || isBulkUploading}>
+              {isBulkRunning ? "처리 중..." : "서버 디렉토리 일괄처리"}
             </button>
+
+            <div
+              className={`bulk-drop-zone ${isBulkDropActive ? "active" : ""}`}
+              onDrop={handleBulkDrop}
+              onDragOver={handleBulkDragOver}
+              onDragLeave={handleBulkDragLeave}
+            >
+              <p className="bulk-drop-title">파일 드래그앤드롭 일괄처리</p>
+              <p className="bulk-drop-hint">여기에 파일을 놓으면 자동으로 순차 업로드합니다.</p>
+              <button
+                type="button"
+                className="bulk-pick-btn"
+                onClick={() => bulkDropInputRef.current?.click()}
+                disabled={isBulkUploading || isBulkRunning}
+              >
+                {isBulkUploading ? "드롭 업로드 처리 중..." : "파일 선택해서 일괄업로드"}
+              </button>
+              <input
+                ref={bulkDropInputRef}
+                type="file"
+                multiple
+                accept={BULK_UPLOAD_ACCEPT}
+                onChange={handleBulkFilePick}
+                style={{ display: "none" }}
+              />
+            </div>
             <pre className="output">{bulkResult}</pre>
           </div>
         </details>
