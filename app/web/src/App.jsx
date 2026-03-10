@@ -67,7 +67,93 @@ function buildChatHistory(messages) {
     .map((msg) => ({ role: msg.role, text: String(msg.text).trim().slice(0, 1200) }));
 }
 
-function ChatMessage({ msg }) {
+function NotionPageViewer({ url, onClose }) {
+  const iframeRef = useRef(null);
+  const [history, setHistory] = useState([url]);
+  const [historyIdx, setHistoryIdx] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const canGoBack = historyIdx > 0;
+  const canGoForward = historyIdx < history.length - 1;
+
+  function handleBack() {
+    if (!canGoBack) return;
+    setLoading(true);
+    const newIdx = historyIdx - 1;
+    setHistoryIdx(newIdx);
+    if (iframeRef.current) iframeRef.current.src = history[newIdx];
+  }
+
+  function handleForward() {
+    if (!canGoForward) return;
+    setLoading(true);
+    const newIdx = historyIdx + 1;
+    setHistoryIdx(newIdx);
+    if (iframeRef.current) iframeRef.current.src = history[newIdx];
+  }
+
+  useEffect(() => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    const onLoad = () => {
+      setLoading(false);
+      try {
+        const newUrl = iframe.contentWindow.location.href;
+        if (newUrl && newUrl !== "about:blank" && newUrl !== history[historyIdx]) {
+          const newHistory = history.slice(0, historyIdx + 1);
+          newHistory.push(newUrl);
+          setHistory(newHistory);
+          setHistoryIdx(newHistory.length - 1);
+        }
+        // Intercept clicks on links inside iframe to show loading
+        const doc = iframe.contentDocument || iframe.contentWindow.document;
+        if (doc) {
+          doc.addEventListener("click", (e) => {
+            const link = e.target.closest("a");
+            if (link && link.href && link.href.includes("/notion/render/")) {
+              e.preventDefault();
+              setLoading(true);
+              iframe.src = link.href;
+            }
+          });
+        }
+      } catch (e) { /* cross-origin, ignore */ }
+    };
+    iframe.addEventListener("load", onLoad);
+    return () => iframe.removeEventListener("load", onLoad);
+  }, [history, historyIdx]);
+
+  return (
+    <div className="notion-viewer-overlay" onClick={onClose}>
+      <div className="notion-viewer" onClick={(e) => e.stopPropagation()}>
+        <div className="notion-viewer-header">
+          <div className="notion-nav-buttons">
+            <button type="button" onClick={handleBack} disabled={!canGoBack} title="뒤로">←</button>
+            <button type="button" onClick={handleForward} disabled={!canGoForward} title="앞으로">→</button>
+          </div>
+          <span>{loading ? "문서 불러오는 중..." : ""}</span>
+          <button type="button" onClick={onClose}>닫기</button>
+        </div>
+        {loading && (
+          <div className="notion-loading">
+            <div className="notion-spinner"></div>
+            <p>Notion 문서를 불러오고 있습니다...</p>
+            <p className="notion-loading-hint">첫 조회 시 다소 시간이 걸릴 수 있습니다</p>
+          </div>
+        )}
+        <iframe
+          ref={iframeRef}
+          src={url}
+          title="Notion page"
+          className="notion-viewer-iframe"
+          style={{ display: loading ? "none" : "block" }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ChatMessage({ msg, onViewPage }) {
   return (
     <div className={`msg-row ${msg.role}`}>
       <div className={`bubble ${msg.role === "user" ? "user-bubble" : "assistant-bubble"}`}>
@@ -80,6 +166,20 @@ function ChatMessage({ msg }) {
         ) : (
           <>
             {msg.text}
+            {msg.role === "assistant" && msg.htmlPages && msg.htmlPages.length > 0 && (
+              <div className="notion-page-links">
+                {msg.htmlPages.map((page, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className="notion-page-btn"
+                    onClick={() => onViewPage(page.url)}
+                  >
+                    {page.title}
+                  </button>
+                ))}
+              </div>
+            )}
             {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
               <details className="msg-sources">
                 <summary>출처 ({msg.sources.length})</summary>
@@ -148,6 +248,8 @@ export default function App() {
   const [isBulkRunning, setIsBulkRunning] = useState(false);
   const [isBulkUploading, setIsBulkUploading] = useState(false);
   const [isBulkDropActive, setIsBulkDropActive] = useState(false);
+
+  const [notionViewerUrl, setNotionViewerUrl] = useState(null);
 
   const [documents, setDocuments] = useState([]);
   const [documentsError, setDocumentsError] = useState("");
@@ -234,7 +336,7 @@ export default function App() {
       setMessages((prev) =>
         prev.map((msg) =>
           msg.id === typingId
-            ? { ...msg, typing: false, text: result.answer || "(빈 응답)", sources: result.sources || [] }
+            ? { ...msg, typing: false, text: result.answer || "(빈 응답)", sources: result.sources || [], htmlPages: result.html_pages || [] }
             : msg
         )
       );
@@ -479,6 +581,9 @@ export default function App() {
 
   return (
     <>
+      {notionViewerUrl && (
+        <NotionPageViewer url={notionViewerUrl} onClose={() => setNotionViewerUrl(null)} />
+      )}
       <div className="bg-grid"></div>
       <button
         type="button"
@@ -679,7 +784,7 @@ export default function App() {
           <article className="chat-card">
             <div ref={threadRef} className="chat-thread" aria-live="polite">
               {messages.map((msg) => (
-                <ChatMessage key={msg.id} msg={msg} />
+                <ChatMessage key={msg.id} msg={msg} onViewPage={(url) => setNotionViewerUrl(url)} />
               ))}
             </div>
 

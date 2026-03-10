@@ -10,9 +10,9 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.models import Document, DocumentChunk
-from app.schemas import SourceChunk
+from app.schemas import NotionPageLink, SourceChunk
 from app.services.llm import generate_answer, get_embedding, get_embeddings
-from app.utils import chunk_text, normalize_text
+from app.utils import chunk_text, clean_source_excerpt, compact_match_text, normalize_text
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +140,7 @@ def _to_source_chunk(
         source_name=doc.source_name,
         chunk_index=chunk.chunk_index,
         score=round(_distance_score(distance), 4),
-        excerpt=chunk.content,
+        excerpt=clean_source_excerpt(chunk.content),
     )
 
 
@@ -148,6 +148,124 @@ def _candidate_limit() -> int:
     if settings.hybrid_search_enabled or settings.rerank_enabled:
         return settings.rerank_candidates
     return settings.max_context_chunks * settings.search_candidate_multiplier
+
+
+def _query_match_terms(question: str) -> list[str]:
+    normalized = normalize_text(question).lower()
+    compact_question = compact_match_text(normalized)
+    terms: set[str] = set()
+
+    if compact_question:
+        terms.add(compact_question)
+
+    for token in re.findall(r"[0-9A-Za-z\u3131-\u318E\uAC00-\uD7A3]+", normalized):
+        compact_token = compact_match_text(token)
+        if len(compact_token) >= 2:
+            terms.add(compact_token)
+
+    if any(keyword in normalized for keyword in ("경조", "조의", "장례", "부고", "사망", "별세", "돌아가")):
+        for alias in ("경조휴가", "경조금", "경조", "조의", "장례", "사망", "부모", "배우자", "본인상"):
+            terms.add(compact_match_text(alias))
+
+    if any(keyword in normalized for keyword in ("엄마", "어머니", "모친", "아버지", "부친", "부모")):
+        for alias in ("부모", "부모상", "부모님의상"):
+            terms.add(compact_match_text(alias))
+
+    return sorted((term for term in terms if term), key=len, reverse=True)
+
+
+def _required_grounding_terms(question: str) -> list[str]:
+    normalized = normalize_text(question).lower()
+    required: set[str] = set()
+
+    if any(keyword in normalized for keyword in ("경조", "조의", "장례", "부고", "사망", "별세", "돌아가")):
+        for term in ("경조", "경조휴가", "경조금", "조의", "장례", "사망", "부모상", "부모님의상"):
+            compact_term = compact_match_text(term)
+            if len(compact_term) >= 2:
+                required.add(compact_term)
+
+    return sorted(required, key=len, reverse=True)
+
+
+def _grounding_score(question: str, source: SourceChunk) -> int:
+    haystack = compact_match_text(f"{source.title} {source.excerpt}")
+    if not haystack:
+        return 0
+
+    score = 0
+    for term in _query_match_terms(question):
+        if term in haystack:
+            score += max(1, len(term))
+    return score
+
+
+def _filter_grounded_sources(question: str, sources: list[SourceChunk]) -> list[SourceChunk]:
+    if not sources:
+        return []
+
+    required_terms = _required_grounding_terms(question)
+    if not required_terms:
+        return sources
+
+    grounded: list[tuple[int, SourceChunk]] = []
+    for source in sources:
+        haystack = compact_match_text(f"{source.title} {source.excerpt}")
+        if any(term in haystack for term in required_terms):
+            grounded.append((_grounding_score(question, source), source))
+
+    grounded.sort(key=lambda item: (item[0], item[1].score), reverse=True)
+    return [source for _, source in grounded]
+
+
+def _excerpt_focus_terms(question: str) -> list[str]:
+    normalized = normalize_text(question).lower()
+    terms: list[str] = []
+
+    for token in re.findall(r"[0-9A-Za-z\u3131-\u318E\uAC00-\uD7A3]+", normalized):
+        if len(token) >= 2:
+            terms.append(token)
+
+    if any(keyword in normalized for keyword in ("경조", "조의", "장례", "부고", "사망", "별세", "돌아가")):
+        terms.extend(["경조휴가", "경조금", "경조", "조의", "장례", "사망", "특별휴가", "특별유급휴가", "부모님의 상"])
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        if term not in seen:
+            seen.add(term)
+            deduped.append(term)
+    return deduped
+
+
+def _focus_excerpt(question: str, excerpt: str, *, window: int = 260) -> str:
+    cleaned = clean_source_excerpt(excerpt)
+    for term in _excerpt_focus_terms(question):
+        index = cleaned.find(term)
+        if index == -1:
+            continue
+        start = max(0, index - 80)
+        end = min(len(cleaned), index + window)
+        snippet = cleaned[start:end].strip()
+        if start > 0:
+            snippet = f"...{snippet}"
+        if end < len(cleaned):
+            snippet = f"{snippet}..."
+        return snippet
+    return cleaned
+
+
+def _with_focused_excerpts(question: str, sources: list[SourceChunk]) -> list[SourceChunk]:
+    return [
+        SourceChunk(
+            document_id=source.document_id,
+            title=source.title,
+            source_name=source.source_name,
+            chunk_index=source.chunk_index,
+            score=source.score,
+            excerpt=_focus_excerpt(question, source.excerpt),
+        )
+        for source in sources
+    ]
 
 
 def _strip_bracket_citations(text: str) -> str:
@@ -364,9 +482,75 @@ def _bm25_search(
             source_name=doc.source_name,
             chunk_index=chunk.chunk_index,
             score=round(normalized_score, 4),
-            excerpt=chunk.content,
+            excerpt=clean_source_excerpt(chunk.content),
         )
         results.append((sc, chunk))
+    return results
+
+
+def _lexical_compact_search(
+    db: Session,
+    *,
+    question: str,
+    user_department: str | None,
+    user_role_set: set[str],
+    limit: int,
+) -> list[tuple[SourceChunk, DocumentChunk]]:
+    terms = _query_match_terms(question)
+    if not terms:
+        return []
+
+    stmt = (
+        select(DocumentChunk, Document)
+        .join(Document, Document.id == DocumentChunk.document_id)
+    )
+    rows = db.execute(stmt).all()
+
+    scored_rows: list[tuple[int, SourceChunk, DocumentChunk]] = []
+    for chunk, doc in rows:
+        if not _is_document_allowed(doc.metadata_json, user_department, user_role_set):
+            continue
+
+        haystack = compact_match_text(f"{doc.title} {chunk.content}")
+        score = 0
+        for term in terms:
+            if term in haystack:
+                score += max(1, len(term))
+        if score <= 0:
+            continue
+
+        source = SourceChunk(
+            document_id=doc.id,
+            title=doc.title,
+            source_name=doc.source_name,
+            chunk_index=chunk.chunk_index,
+            score=float(score),
+            excerpt=clean_source_excerpt(chunk.content),
+        )
+        scored_rows.append((score, source, chunk))
+
+    if not scored_rows:
+        return []
+
+    scored_rows.sort(key=lambda item: item[0], reverse=True)
+    top_rows = scored_rows[:limit]
+    max_score = top_rows[0][0] if top_rows else 1
+
+    results: list[tuple[SourceChunk, DocumentChunk]] = []
+    for score, source, chunk in top_rows:
+        results.append(
+            (
+                SourceChunk(
+                    document_id=source.document_id,
+                    title=source.title,
+                    source_name=source.source_name,
+                    chunk_index=source.chunk_index,
+                    score=round(score / max_score, 4),
+                    excerpt=source.excerpt,
+                ),
+                chunk,
+            )
+        )
     return results
 
 
@@ -499,6 +683,62 @@ def _search_chunks(
     return [sc for sc, _ in merged[:settings.max_context_chunks]]
 
 
+def _search_chunks_grounded(
+    db: Session,
+    *,
+    question: str,
+    question_embedding: list[float],
+    user_department: str | None,
+    user_roles: list[str],
+) -> list[SourceChunk]:
+    user_role_set = set(user_roles)
+    candidate_limit = _candidate_limit()
+
+    vector_results = _vector_search(
+        db,
+        question_embedding=question_embedding,
+        user_department=user_department,
+        user_role_set=user_role_set,
+        limit=candidate_limit,
+    )
+
+    if settings.hybrid_search_enabled:
+        bm25_results = _bm25_search(
+            db,
+            question=question,
+            user_department=user_department,
+            user_role_set=user_role_set,
+            limit=candidate_limit,
+        )
+        merged = _reciprocal_rank_fusion(
+            vector_results,
+            bm25_results,
+            bm25_weight=settings.bm25_weight,
+            limit=candidate_limit,
+        )
+    else:
+        merged = vector_results
+
+    lexical_results = _lexical_compact_search(
+        db,
+        question=question,
+        user_department=user_department,
+        user_role_set=user_role_set,
+        limit=candidate_limit,
+    )
+    if lexical_results:
+        merged = _reciprocal_rank_fusion(merged, lexical_results, bm25_weight=0.45, limit=candidate_limit)
+
+    if settings.rerank_enabled and merged:
+        reranked = _rerank(question, merged, top_n=settings.rerank_top_n)
+        grounded = _filter_grounded_sources(question, reranked)
+        return _with_focused_excerpts(question, grounded or reranked)
+
+    top_sources = [sc for sc, _ in merged[:settings.max_context_chunks]]
+    grounded = _filter_grounded_sources(question, top_sources)
+    return _with_focused_excerpts(question, grounded or top_sources)
+
+
 def answer_question(
     db: Session,
     *,
@@ -507,10 +747,10 @@ def answer_question(
     user_department: str | None,
     user_roles: list[str],
     history: list[dict[str, str]] | None = None,
-) -> tuple[str, list[SourceChunk]]:
+) -> tuple[str, list[SourceChunk], list[NotionPageLink]]:
     effective_question = _resolve_effective_question(question=question, user_id=user_id, history=history)
     question_embedding = get_embedding(effective_question)
-    sources = _search_chunks(
+    sources = _search_chunks_grounded(
         db,
         question=effective_question,
         question_embedding=question_embedding,
@@ -519,10 +759,10 @@ def answer_question(
     )
     if not sources:
         if settings.allow_general_fallback:
-            return _general_fallback_answer(question=effective_question, user_id=user_id), []
-        return "참고할 사내 문서를 찾지 못했어요. 질문을 조금 더 구체적으로 적어 주시면 다시 찾아볼게요.", []
+            return _general_fallback_answer(question=effective_question, user_id=user_id), [], []
+        return "참고할 사내 문서를 찾지 못했어요. 질문을 조금 더 구체적으로 적어 주시면 다시 찾아볼게요.", [], []
     if settings.allow_general_fallback and _is_low_confidence_retrieval(sources):
-        return _general_fallback_answer(question=effective_question, user_id=user_id), []
+        return _general_fallback_answer(question=effective_question, user_id=user_id), [], []
 
     context_lines = []
     for idx, source in enumerate(sources, start=1):
@@ -550,4 +790,20 @@ def answer_question(
         "Do not include bracket citations like [1], [2]."
     )
     answer = _strip_bracket_citations(generate_answer(system_prompt, user_prompt))
-    return answer, sources
+
+    # Collect unique Notion root page render URLs from source document metadata
+    html_pages: list[NotionPageLink] = []
+    seen_pages: set[str] = set()
+    for source in sources:
+        doc = db.scalar(select(Document).where(Document.id == source.document_id).limit(1))
+        if doc and doc.metadata_json:
+            render_id = doc.metadata_json.get("notion_root_id") or doc.metadata_json.get("notion_page_id")
+            if render_id and render_id not in seen_pages:
+                seen_pages.add(render_id)
+                root_title = doc.metadata_json.get("notion_root_title") or doc.title
+                html_pages.append(NotionPageLink(
+                    url=f"/notion/render/{render_id}",
+                    title=root_title,
+                ))
+
+    return answer, sources, html_pages

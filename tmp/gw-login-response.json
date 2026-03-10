@@ -1,0 +1,10 @@
+{
+  "code" : "200",
+  "message" : "OK",
+  "__go_checksum__" : true,
+  "data" : {
+    "redirect" : "%2Fapp%2Fhome",
+    "xmppDomain" : "xmppdaou.com",
+    "useSkipPwdChange" : false
+  }
+}

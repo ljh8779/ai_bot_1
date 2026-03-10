@@ -1,0 +1,14 @@
+0 verbose cli C:\Program Files\nodejs\node.exe C:\Program Files\nodejs\node_modules\npm\bin\npm-cli.js
+1 info using npm@10.9.2
+2 info using node@v22.14.0
+3 silly config load:file:C:\Program Files\nodejs\node_modules\npm\npmrc
+4 silly config load:file:C:\codex_code\ai_bot_1\.npmrc
+5 silly config load:file:C:\Users\ljh87\.npmrc
+6 silly config load:file:C:\Users\ljh87\AppData\Roaming\npm\etc\npmrc
+7 verbose title npm view tavily-mcp version
+8 verbose argv "view" "tavily-mcp" "version"
+9 verbose logfile logs-max:10 dir:C:\codex_code\ai_bot_1\.npm-cache\_logs\2026-03-09T04_48_28_402Z-
+10 verbose logfile C:\codex_code\ai_bot_1\.npm-cache\_logs\2026-03-09T04_48_28_402Z-debug-0.log
+11 silly logfile done cleaning log files
+12 http fetch GET https://registry.npmjs.org/tavily-mcp attempt 1 failed with EACCES
+13 http fetch GET https://registry.npmjs.org/tavily-mcp attempt 2 failed with EACCES

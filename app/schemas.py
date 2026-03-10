@@ -71,9 +71,15 @@ class SourceChunk(BaseModel):
     excerpt: str
 
 
+class NotionPageLink(BaseModel):
+    url: str
+    title: str
+
+
 class ChatResponse(BaseModel):
     answer: str
     sources: list[SourceChunk]
+    html_pages: list[NotionPageLink] = Field(default_factory=list)
 
 
 class DocumentListItem(BaseModel):

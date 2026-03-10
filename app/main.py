@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import func, select, text
 from sqlalchemy.exc import SQLAlchemyError
@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 if web_dist_dir.exists():
     app.mount("/web", StaticFiles(directory=web_dist_dir), name="web")
+
 
 
 def _is_model_available(required_model: str, available_models: set[str]) -> bool:
@@ -79,17 +80,31 @@ def on_startup() -> None:
             conn.execute(
                 text("CREATE UNIQUE INDEX IF NOT EXISTS uq_documents_content_hash_idx ON documents (content_hash)")
             )
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS ix_document_chunks_embedding_ivfflat "
-                    "ON document_chunks USING ivfflat (embedding vector_cosine_ops) "
-                    "WITH (lists = 100)"
+            if settings.embedding_dimensions <= 2000:
+                conn.execute(
+                    text(
+                        "CREATE INDEX IF NOT EXISTS ix_document_chunks_embedding_hnsw "
+                        "ON document_chunks USING hnsw (embedding vector_cosine_ops) "
+                        "WITH (m = 16, ef_construction = 64)"
+                    )
                 )
-            )
     except Exception as exc:
         raise RuntimeError(
             "Database initialization failed. Ensure pgvector is installed and DB permissions are correct."
         ) from exc
+
+    # Warm up Gemini API connections in background so first user query is fast
+    import threading
+    def _warmup():
+        try:
+            from app.services.llm import get_embedding, generate_answer
+            get_embedding("warmup")
+            logger.info("LLM embedding warmup done.")
+            generate_answer("You are a test.", "Say OK.")
+            logger.info("LLM chat warmup done.")
+        except Exception as exc:
+            logger.warning("Warmup failed (non-fatal): %s", exc)
+    threading.Thread(target=_warmup, daemon=True).start()
 
 
 @app.get("/health", response_model=HealthResponse)
@@ -265,6 +280,117 @@ def ingest_bulk_directory(db: Session = Depends(get_db)) -> BulkIngestResponse:
         raise HTTPException(status_code=500, detail=f"Bulk ingestion failed due to an internal error: {exc}") from exc
 
 
+@app.get("/notion/render/{page_id}")
+def render_notion_page(page_id: str) -> HTMLResponse:
+    """Fetch a Notion page via API and return rendered HTML."""
+    from app.services.notion import render_page_html
+
+    if not settings.notion_api_key:
+        raise HTTPException(status_code=500, detail="NOTION_API_KEY is not configured.")
+    html = render_page_html(page_id)
+    if not html:
+        raise HTTPException(status_code=404, detail="Notion page not found or API error.")
+    return HTMLResponse(content=html)
+
+
+@app.post("/documents/notion-ingest")
+def ingest_notion_pages(db: Session = Depends(get_db)) -> dict:
+    """Fetch Notion pages via API, extract text, and ingest into RAG.
+    Walks child_page blocks from root pages matching TARGET_ROOT_KEYWORDS."""
+    from app.services.notion import (
+        search_all_pages, extract_page_text, get_page_title,
+        get_blocks, get_page,
+    )
+
+    TARGET_ROOT_KEYWORDS = ["가맹점포용", "가맹본부용"]
+
+    if not settings.notion_api_key:
+        raise HTTPException(status_code=500, detail="NOTION_API_KEY is not configured.")
+
+    pages = search_all_pages()
+
+    # Find root pages matching keywords
+    root_pages: list[tuple[str, str]] = []  # (page_id, title)
+    for page in pages:
+        title = get_page_title(page)
+        if any(kw in title for kw in TARGET_ROOT_KEYWORDS):
+            root_pages.append((page["id"], title))
+
+    logger.info("Notion ingest: found %d root pages: %s", len(root_pages), root_pages)
+
+    # Recursively collect all child_page IDs under each root
+    def _collect_child_pages(block_id: str, root_id: str, root_title: str,
+                             result: list[tuple[str, str, str]],
+                             depth: int = 0, max_depth: int = 5) -> None:
+        """Collect (child_page_id, root_id, root_title) from blocks."""
+        if depth > max_depth:
+            return
+        blocks = get_blocks(block_id, depth=0, max_depth=0)  # single level
+        for b in blocks:
+            if b.get("type") == "child_page":
+                child_id = b.get("id", "")
+                if child_id:
+                    result.append((child_id, root_id, root_title))
+                    _collect_child_pages(child_id, root_id, root_title, result, depth + 1, max_depth)
+
+    # Build list: [(page_id, root_id, root_title)]
+    pages_to_ingest: list[tuple[str, str, str]] = []
+    for root_id, root_title in root_pages:
+        pages_to_ingest.append((root_id, root_id, root_title))
+        _collect_child_pages(root_id, root_id, root_title, pages_to_ingest)
+
+    logger.info("Notion ingest: total pages to ingest = %d", len(pages_to_ingest))
+
+    ingested = 0
+    skipped = 0
+    failed = 0
+    details: list[dict] = []
+
+    for page_id, root_id, root_title in pages_to_ingest:
+        try:
+            result = extract_page_text(page_id)
+            if not result:
+                skipped += 1
+                details.append({"page": page_id, "status": "skipped", "message": "API fetch failed"})
+                continue
+
+            title, text = result
+            if len(text) < 10:
+                skipped += 1
+                details.append({"page": title, "status": "skipped", "message": "Too little text"})
+                continue
+
+            metadata = {
+                "notion_page_id": page_id,
+                "notion_root_id": root_id,
+                "notion_root_title": root_title,
+            }
+            doc_id, chunk_count = ingest_text_document(
+                db,
+                title=title,
+                source_type="notion",
+                source_name=f"notion/{title}",
+                content=text,
+                metadata=metadata,
+            )
+            ingested += 1
+            details.append({"page": title, "status": "ingested", "document_id": doc_id, "chunks": chunk_count})
+        except ValueError:
+            skipped += 1
+            details.append({"page": page_id, "status": "skipped", "message": "duplicate"})
+        except Exception as exc:
+            failed += 1
+            details.append({"page": page_id, "status": "failed", "message": str(exc)})
+
+    return {
+        "total_pages": len(pages_to_ingest),
+        "ingested": ingested,
+        "skipped": skipped,
+        "failed": failed,
+        "details": details[:settings.bulk_ingest_details_limit],
+    }
+
+
 @app.delete("/documents/uploaded")
 def delete_uploaded_documents(db: Session = Depends(get_db)) -> dict:
     try:
@@ -301,7 +427,7 @@ def delete_all_documents(db: Session = Depends(get_db)) -> dict:
 @app.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
     try:
-        answer, sources = answer_question(
+        answer, sources, html_pages = answer_question(
             db,
             question=payload.question,
             user_id=payload.user_id,
@@ -314,5 +440,5 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
     except Exception as exc:
         logger.exception("Chat failed.")
         raise HTTPException(status_code=500, detail="Chat failed due to an internal error.") from exc
-    return ChatResponse(answer=answer, sources=sources)
+    return ChatResponse(answer=answer, sources=sources, html_pages=html_pages)
 

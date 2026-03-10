@@ -59,11 +59,14 @@ def _get_embeddings_model():
     if provider == GOOGLE_PROVIDER:
         from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
-        return GoogleGenerativeAIEmbeddings(
+        kwargs = dict(
             model=settings.google_embedding_model,
             google_api_key=_google_api_key(),
             task_type="RETRIEVAL_DOCUMENT",
         )
+        if settings.embedding_dimensions < 3072:
+            kwargs["output_dimensionality"] = settings.embedding_dimensions
+        return GoogleGenerativeAIEmbeddings(**kwargs)
 
     from langchain_ollama import OllamaEmbeddings
 
@@ -75,18 +78,19 @@ def _get_embeddings_model():
 
 @lru_cache
 def _get_query_embeddings_model():
-    """Query용 임베딩 모델 (Google은 task_type이 다름)."""
     provider = _provider()
     if provider == GOOGLE_PROVIDER:
         from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
-        return GoogleGenerativeAIEmbeddings(
+        kwargs = dict(
             model=settings.google_embedding_model,
             google_api_key=_google_api_key(),
             task_type="RETRIEVAL_QUERY",
         )
+        if settings.embedding_dimensions < 3072:
+            kwargs["output_dimensionality"] = settings.embedding_dimensions
+        return GoogleGenerativeAIEmbeddings(**kwargs)
 
-    # Ollama는 query/document 구분 없음
     return _get_embeddings_model()
 
 

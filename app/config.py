@@ -41,11 +41,13 @@ class Settings(BaseSettings):
     pdf_ocr_dpi: int = 200
     pdf_ocr_fallback_min_chars: int = 40
     ocr_tesseract_lang: str = "kor+eng"
+    notion_api_key: str | None = None
+    hf_embedding_model: str = "jhgan/ko-sroberta-multitask"
 
     # Hybrid search & reranking
     hybrid_search_enabled: bool = True
     bm25_weight: float = 0.3
-    rerank_enabled: bool = True
+    rerank_enabled: bool = False
     rerank_model: str = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
     rerank_top_n: int = 5
     rerank_candidates: int = 20
