@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.schemas import ChatRequest, IngestTextRequest
+from app.schemas import ChatRequest, FranchiseSyncResponse, IngestTextRequest
 
 
 def test_ingest_text_request_accepts_valid_acl_metadata():
@@ -44,3 +44,24 @@ def test_chat_request_rejects_invalid_history_role():
             user_id="u-1001",
             history=[{"role": "system", "text": "invalid"}],
         )
+
+
+def test_franchise_sync_response_accepts_detail_rows():
+    payload = FranchiseSyncResponse(
+        total_pages=3,
+        synced=2,
+        inserted=1,
+        updated=1,
+        unchanged=0,
+        skipped=1,
+        failed=0,
+        details=[
+            {
+                "notion_page_id": "page-1",
+                "title": "가맹점포용 운영 가이드",
+                "status": "inserted",
+                "record_id": "record-1",
+            }
+        ],
+    )
+    assert payload.details[0].status == "inserted"

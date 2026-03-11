@@ -90,3 +90,33 @@ class DocumentListItem(BaseModel):
     chunk_count: int
     metadata: dict[str, Any]
     created_at: datetime
+
+
+class FranchiseSyncItem(BaseModel):
+    notion_page_id: str
+    title: str
+    status: str
+    record_id: str | None = None
+    message: str | None = None
+
+
+class FranchiseSyncResponse(BaseModel):
+    total_pages: int
+    synced: int
+    inserted: int
+    updated: int
+    unchanged: int
+    skipped: int
+    failed: int
+    details: list[FranchiseSyncItem] = Field(default_factory=list)
+
+
+class FranchisePageListItem(BaseModel):
+    record_id: str
+    notion_page_id: str
+    notion_root_title: str
+    title: str
+    source_name: str
+    notion_url: str | None
+    last_edited_time: datetime | None
+    synced_at: datetime

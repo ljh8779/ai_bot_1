@@ -1,12 +1,13 @@
 """Real-time Notion API client: fetch blocks and render as HTML (with cache)."""
+import json
 import logging
 import re
-import time
 import threading
-import urllib.request
+import time
 import urllib.error
-import json
-from typing import Any
+import urllib.request
+from datetime import datetime
+from typing import Any, Sequence
 
 from app.config import get_settings
 
@@ -19,6 +20,7 @@ settings = get_settings()
 _CACHE_TTL = 600  # seconds
 _cache: dict[str, tuple[float, str]] = {}  # page_id -> (expire_time, html)
 _cache_lock = threading.Lock()
+DEFAULT_FRANCHISE_ROOT_KEYWORDS = ("가맹점포용", "가맹본부용")
 
 
 def _cache_get(page_id: str) -> str | None:
@@ -439,3 +441,73 @@ def extract_page_text(page_id: str) -> tuple[str, str] | None:
     blocks = get_blocks(page_id)
     text = _blocks_to_text(blocks).strip()
     return title, text
+
+
+def parse_notion_datetime(raw_value: str | None) -> datetime | None:
+    if not raw_value:
+        return None
+    normalized = raw_value.replace("Z", "+00:00")
+    try:
+        return datetime.fromisoformat(normalized)
+    except ValueError:
+        logger.warning("Failed to parse Notion datetime: %s", raw_value)
+        return None
+
+
+def collect_target_pages(
+    root_keywords: Sequence[str] = DEFAULT_FRANCHISE_ROOT_KEYWORDS,
+    *,
+    max_depth: int = 5,
+) -> list[tuple[str, str, str]]:
+    pages = search_all_pages()
+    root_pages: list[tuple[str, str]] = []
+    for page in pages:
+        title = get_page_title(page)
+        if any(keyword in title for keyword in root_keywords):
+            root_pages.append((page["id"], title))
+
+    results: list[tuple[str, str, str]] = []
+    seen_page_ids: set[str] = set()
+
+    def _append(page_id: str, root_id: str, root_title: str) -> None:
+        if page_id in seen_page_ids:
+            return
+        seen_page_ids.add(page_id)
+        results.append((page_id, root_id, root_title))
+
+    def _collect_child_pages(block_id: str, root_id: str, root_title: str, *, depth: int = 0) -> None:
+        if depth > max_depth:
+            return
+        blocks = get_blocks(block_id, depth=0, max_depth=0)
+        for block in blocks:
+            if block.get("type") != "child_page":
+                continue
+            child_id = block.get("id", "")
+            if not child_id:
+                continue
+            _append(child_id, root_id, root_title)
+            _collect_child_pages(child_id, root_id, root_title, depth=depth + 1)
+
+    for root_id, root_title in root_pages:
+        _append(root_id, root_id, root_title)
+        _collect_child_pages(root_id, root_id, root_title)
+
+    return results
+
+
+def extract_page_payload(page_id: str) -> dict[str, Any] | None:
+    page = get_page(page_id)
+    if not page:
+        return None
+
+    title = get_page_title(page)
+    blocks = get_blocks(page_id)
+    content_text = _blocks_to_text(blocks).strip()
+    return {
+        "page_id": page_id,
+        "title": title,
+        "url": page.get("url"),
+        "last_edited_time": parse_notion_datetime(page.get("last_edited_time")),
+        "properties": page.get("properties", {}),
+        "content_text": content_text,
+    }

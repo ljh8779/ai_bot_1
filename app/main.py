@@ -11,16 +11,19 @@ from sqlalchemy.orm import Session
 
 from app.config import get_settings
 from app.db import Base, engine, get_db
-from app.models import Document, DocumentChunk
+from app.models import Document, DocumentChunk, FranchisePage
 from app.schemas import (
     BulkIngestResponse,
     ChatRequest,
     ChatResponse,
     DocumentListItem,
+    FranchisePageListItem,
+    FranchiseSyncResponse,
     HealthResponse,
     IngestResponse,
     IngestTextRequest,
 )
+from app.services.franchise_sync import sync_franchise_pages
 from app.services.bulk_ingest import ingest_directory
 from app.services.file_extract import SUPPORTED_UPLOAD_SUFFIXES, extract_content_from_upload
 from app.services.llm import get_available_embedding_models, get_available_models, ping_embeddings, ping_llm
@@ -413,6 +416,38 @@ def ingest_notion_pages(db: Session = Depends(get_db)) -> dict:
         "failed": failed,
         "details": details[:settings.bulk_ingest_details_limit],
     }
+
+
+@app.post("/franchise/notion-sync", response_model=FranchiseSyncResponse)
+def sync_franchise_notion(db: Session = Depends(get_db)) -> FranchiseSyncResponse:
+    if not settings.notion_api_key:
+        raise HTTPException(status_code=500, detail="NOTION_API_KEY is not configured.")
+
+    try:
+        return sync_franchise_pages(db)
+    except Exception as exc:
+        logger.exception("Franchise Notion sync failed.")
+        raise HTTPException(status_code=500, detail=f"Franchise Notion sync failed: {exc}") from exc
+
+
+@app.get("/franchise/pages", response_model=list[FranchisePageListItem])
+def list_franchise_pages(limit: int = 100, db: Session = Depends(get_db)) -> list[FranchisePageListItem]:
+    safe_limit = min(max(limit, 1), 200)
+    stmt = select(FranchisePage).order_by(FranchisePage.synced_at.desc()).limit(safe_limit)
+    records = db.scalars(stmt).all()
+    return [
+        FranchisePageListItem(
+            record_id=record.id,
+            notion_page_id=record.notion_page_id,
+            notion_root_title=record.notion_root_title,
+            title=record.title,
+            source_name=record.source_name,
+            notion_url=record.notion_url,
+            last_edited_time=record.last_edited_time,
+            synced_at=record.synced_at,
+        )
+        for record in records
+    ]
 
 
 @app.delete("/documents/uploaded")

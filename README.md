@@ -11,6 +11,8 @@ It now supports both local and cloud LLM providers:
   - `POST /documents/text` for manual text
   - `POST /documents/file` for `.txt`, `.md`, `.pdf`, `.pptx`, image files (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.tif`, `.tiff`)
   - `POST /documents/bulk` for directory batch ingestion (includes `.zip` internal supported files)
+  - `POST /franchise/notion-sync` for Notion franchise pages into operational DB table
+  - `GET /franchise/pages` for synced franchise records
 - Retrieval-augmented chat
   - `POST /chat` returns answer + source chunks
 - Access control filtering
@@ -45,6 +47,7 @@ EMBEDDING_PROVIDER=google
 GOOGLE_API_KEY=your_google_ai_api_key_here
 GOOGLE_EMBEDDING_MODEL=gemini-embedding-001
 GOOGLE_CHAT_MODEL=gemini-2.5-flash
+NOTION_API_KEY=your_notion_integration_key_here
 ```
 
 3. Start infrastructure
@@ -209,6 +212,7 @@ bash scripts/run_http_only.sh
 ## Notes
 
 - If using Google provider, `GOOGLE_API_KEY` is required.
+- If using franchise Notion sync, `NOTION_API_KEY` is required.
 - If using Ollama outside Docker, set `OLLAMA_BASE_URL` in `.env`.
   - Example: `http://host.docker.internal:11434`
 - `EMBEDDING_DIMENSIONS` must match your embedding model output dimension.
@@ -264,12 +268,25 @@ bash scripts/run_http_only.sh
 No request body required. The server scans `BULK_INGEST_DIR` recursively and ingests supported files.
 If a `.zip` is found, supported files inside the archive are also ingested.
 
+### Franchise Notion Sync
+
+`POST /franchise/notion-sync`
+
+No request body required. The server searches Notion pages accessible to the integration, finds roots whose title includes `가맹점포용` or `가맹본부용`, walks child pages, and upserts them into the `franchise_pages` table.
+
+### Franchise Page List
+
+`GET /franchise/pages?limit=100`
+
+Returns the most recently synced franchise records from the operational table.
+
 ## Main Tunables
 
 - `LLM_PROVIDER`
 - `EMBEDDING_PROVIDER`
 - `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`, `LLM_CHAT_TEMPERATURE`
 - `GOOGLE_CHAT_MODEL`, `GOOGLE_EMBEDDING_MODEL`, `GOOGLE_API_KEY`
+- `NOTION_API_KEY`
 - `OLLAMA_BASE_URL`
 - `OLLAMA_CHAT_MODEL`, `OLLAMA_EMBEDDING_MODEL`
 - `HF_EMBEDDING_MODEL`
