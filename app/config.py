@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     app_name: str = "groupware-rag-bot"
     app_env: str = "dev"
     llm_provider: str = "ollama"
+    embedding_provider: str | None = None
     llm_timeout_seconds: float = 120.0
     llm_max_retries: int = 2
     llm_chat_temperature: float = 0.2
@@ -59,9 +60,16 @@ class Settings(BaseSettings):
         return self.llm_provider.strip().lower()
 
     @property
+    def normalized_embedding_provider(self) -> str:
+        provider = self.embedding_provider or self.llm_provider
+        return provider.strip().lower()
+
+    @property
     def active_embedding_model(self) -> str:
-        if self.normalized_llm_provider == "google":
+        if self.normalized_embedding_provider == "google":
             return self.google_embedding_model
+        if self.normalized_embedding_provider == "huggingface":
+            return self.hf_embedding_model
         return self.ollama_embedding_model
 
     @property
@@ -74,8 +82,14 @@ class Settings(BaseSettings):
     def validate_ranges(self) -> "Settings":
         if self.normalized_llm_provider not in {"google", "ollama"}:
             raise ValueError("LLM_PROVIDER must be one of: google, ollama")
-        if self.normalized_llm_provider == "google" and not (self.google_api_key or "").strip():
-            raise ValueError("GOOGLE_API_KEY is required when LLM_PROVIDER=google")
+        if self.normalized_embedding_provider not in {"google", "ollama", "huggingface"}:
+            raise ValueError("EMBEDDING_PROVIDER must be one of: google, ollama, huggingface")
+        if (
+            self.normalized_llm_provider == "google" or self.normalized_embedding_provider == "google"
+        ) and not (self.google_api_key or "").strip():
+            raise ValueError("GOOGLE_API_KEY is required when LLM_PROVIDER=google or EMBEDDING_PROVIDER=google")
+        if self.normalized_embedding_provider == "huggingface" and not self.hf_embedding_model.strip():
+            raise ValueError("HF_EMBEDDING_MODEL is required when EMBEDDING_PROVIDER=huggingface")
         if self.llm_timeout_seconds <= 0:
             raise ValueError("LLM_TIMEOUT_SECONDS must be > 0")
         if self.llm_max_retries < 0:

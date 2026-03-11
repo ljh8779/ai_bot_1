@@ -23,7 +23,7 @@ from app.schemas import (
 )
 from app.services.bulk_ingest import ingest_directory
 from app.services.file_extract import SUPPORTED_UPLOAD_SUFFIXES, extract_content_from_upload
-from app.services.llm import get_available_models, ping_llm
+from app.services.llm import get_available_embedding_models, get_available_models, ping_embeddings, ping_llm
 from app.services.rag import answer_question, ingest_text_document
 
 app = FastAPI(title="Groupware RAG Bot API", version="0.1.0")
@@ -124,14 +124,38 @@ def health() -> HealthResponse:
         llm_status = "down"
         raise HTTPException(status_code=503, detail=f"{provider} LLM service unavailable.")
 
-    required_models = {settings.active_embedding_model, settings.active_chat_model}
-    available_models = get_available_models()
-    missing_models = sorted(model for model in required_models if not _is_model_available(model, available_models))
-    if missing_models:
+    available_chat_models = get_available_models()
+    missing_chat_models = sorted(
+        model for model in {settings.active_chat_model} if not _is_model_available(model, available_chat_models)
+    )
+    if missing_chat_models:
         llm_status = "down"
         raise HTTPException(
             status_code=503,
-            detail=f"{provider} models missing: {', '.join(missing_models)}.",
+            detail=f"{provider} chat models missing: {', '.join(missing_chat_models)}.",
+        )
+
+    if not ping_embeddings():
+        llm_status = "down"
+        raise HTTPException(
+            status_code=503,
+            detail=f"{settings.normalized_embedding_provider} embedding backend unavailable.",
+        )
+
+    available_embedding_models = get_available_embedding_models()
+    missing_embedding_models = sorted(
+        model
+        for model in {settings.active_embedding_model}
+        if not _is_model_available(model, available_embedding_models)
+    )
+    if missing_embedding_models:
+        llm_status = "down"
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"{settings.normalized_embedding_provider} embedding models missing: "
+                f"{', '.join(missing_embedding_models)}."
+            ),
         )
 
     return HealthResponse(status="ok", db=db_status, llm=llm_status)
@@ -441,4 +465,3 @@ def chat(payload: ChatRequest, db: Session = Depends(get_db)) -> ChatResponse:
         logger.exception("Chat failed.")
         raise HTTPException(status_code=500, detail="Chat failed due to an internal error.") from exc
     return ChatResponse(answer=answer, sources=sources, html_pages=html_pages)
-

@@ -41,6 +41,7 @@ Edit `.env`:
 
 ```bash
 LLM_PROVIDER=google
+EMBEDDING_PROVIDER=google
 GOOGLE_API_KEY=your_google_ai_api_key_here
 GOOGLE_EMBEDDING_MODEL=gemini-embedding-001
 GOOGLE_CHAT_MODEL=gemini-2.5-flash
@@ -66,6 +67,22 @@ If you want local inference instead of cloud, set:
 LLM_PROVIDER=ollama
 OLLAMA_EMBEDDING_MODEL=nomic-embed-text
 OLLAMA_CHAT_MODEL=qwen2.5:7b
+```
+
+If you want to keep chat on Google but use local HuggingFace embeddings, set:
+
+```bash
+LLM_PROVIDER=google
+EMBEDDING_PROVIDER=huggingface
+HF_EMBEDDING_MODEL=nlpai-lab/KURE-v1
+EMBEDDING_DIMENSIONS=1024
+```
+
+If you switch embedding backends for an existing database, re-embed stored chunks so
+document vectors and query vectors stay compatible:
+
+```bash
+python -m app.reembed
 ```
 
 Then run:
@@ -250,10 +267,12 @@ If a `.zip` is found, supported files inside the archive are also ingested.
 ## Main Tunables
 
 - `LLM_PROVIDER`
+- `EMBEDDING_PROVIDER`
 - `LLM_TIMEOUT_SECONDS`, `LLM_MAX_RETRIES`, `LLM_CHAT_TEMPERATURE`
 - `GOOGLE_CHAT_MODEL`, `GOOGLE_EMBEDDING_MODEL`, `GOOGLE_API_KEY`
 - `OLLAMA_BASE_URL`
 - `OLLAMA_CHAT_MODEL`, `OLLAMA_EMBEDDING_MODEL`
+- `HF_EMBEDDING_MODEL`
 - `EMBEDDING_DIMENSIONS`
 - `CHUNK_SIZE`, `CHUNK_OVERLAP`
 - `MAX_CONTEXT_CHUNKS`

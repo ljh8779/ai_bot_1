@@ -20,6 +20,11 @@ if [[ -f "${ENV_FILE}" ]]; then
   cp "${ENV_FILE}" "${backup_file}"
 fi
 
+is_env_tracked="0"
+if git -C "${ROOT_DIR}" ls-files --error-unmatch -- .env.prod >/dev/null 2>&1; then
+  is_env_tracked="1"
+fi
+
 restore_env() {
   if [[ -n "${backup_file}" && -f "${backup_file}" ]]; then
     cp "${backup_file}" "${ENV_FILE}"
@@ -30,7 +35,11 @@ trap restore_env EXIT
 
 # Keep local production secrets untouched while updating tracked files.
 if [[ -f "${ENV_FILE}" ]]; then
-  git -C "${ROOT_DIR}" restore .env.prod
+  if [[ "${is_env_tracked}" == "1" ]]; then
+    git -C "${ROOT_DIR}" restore --staged --worktree .env.prod || git -C "${ROOT_DIR}" restore .env.prod
+  else
+    rm -f "${ENV_FILE}"
+  fi
 fi
 
 git -C "${ROOT_DIR}" pull --rebase "$@"

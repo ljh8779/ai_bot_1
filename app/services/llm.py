@@ -10,6 +10,7 @@ from app.config import get_settings
 settings = get_settings()
 GOOGLE_PROVIDER = "google"
 OLLAMA_PROVIDER = "ollama"
+HUGGINGFACE_PROVIDER = "huggingface"
 
 
 @lru_cache
@@ -54,8 +55,18 @@ def _get_chat_model():
 
 
 @lru_cache
+def _get_huggingface_embeddings_model():
+    from langchain_huggingface import HuggingFaceEmbeddings
+
+    return HuggingFaceEmbeddings(
+        model_name=settings.hf_embedding_model,
+        encode_kwargs={"normalize_embeddings": True},
+    )
+
+
+@lru_cache
 def _get_embeddings_model():
-    provider = _provider()
+    provider = _embedding_provider()
     if provider == GOOGLE_PROVIDER:
         from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
@@ -68,6 +79,9 @@ def _get_embeddings_model():
             kwargs["output_dimensionality"] = settings.embedding_dimensions
         return GoogleGenerativeAIEmbeddings(**kwargs)
 
+    if provider == HUGGINGFACE_PROVIDER:
+        return _get_huggingface_embeddings_model()
+
     from langchain_ollama import OllamaEmbeddings
 
     return OllamaEmbeddings(
@@ -78,7 +92,7 @@ def _get_embeddings_model():
 
 @lru_cache
 def _get_query_embeddings_model():
-    provider = _provider()
+    provider = _embedding_provider()
     if provider == GOOGLE_PROVIDER:
         from langchain_google_genai import GoogleGenerativeAIEmbeddings
 
@@ -90,6 +104,9 @@ def _get_query_embeddings_model():
         if settings.embedding_dimensions < 3072:
             kwargs["output_dimensionality"] = settings.embedding_dimensions
         return GoogleGenerativeAIEmbeddings(**kwargs)
+
+    if provider == HUGGINGFACE_PROVIDER:
+        return _get_huggingface_embeddings_model()
 
     return _get_embeddings_model()
 
@@ -123,6 +140,10 @@ def _is_retryable_status(status_code: int) -> bool:
 
 def _provider() -> str:
     return settings.normalized_llm_provider
+
+
+def _embedding_provider() -> str:
+    return settings.normalized_embedding_provider
 
 
 def _google_api_key() -> str:
@@ -205,6 +226,50 @@ def ping_llm() -> bool:
     return False
 
 
+def ping_embeddings() -> bool:
+    provider = _embedding_provider()
+
+    if provider == OLLAMA_PROVIDER:
+        client = _get_ollama_client()
+
+        def _call():
+            response = client.get("/api/tags", timeout=min(settings.llm_timeout_seconds, 5.0))
+            response.raise_for_status()
+            return True
+
+        try:
+            return _with_retries(_call, provider)
+        except RuntimeError:
+            return False
+
+    if provider == GOOGLE_PROVIDER:
+        client = _get_google_client()
+        api_key = _google_api_key()
+
+        def _call():
+            response = client.get(
+                "/v1beta/models",
+                params={"key": api_key},
+                timeout=min(settings.llm_timeout_seconds, 5.0),
+            )
+            response.raise_for_status()
+            return True
+
+        try:
+            return _with_retries(_call, provider)
+        except RuntimeError:
+            return False
+
+    if provider == HUGGINGFACE_PROVIDER:
+        try:
+            _get_query_embeddings_model()
+            return True
+        except Exception:
+            return False
+
+    return False
+
+
 def get_available_models() -> set[str]:
     provider = _provider()
 
@@ -250,16 +315,80 @@ def get_available_models() -> set[str]:
     raise RuntimeError(f"Unsupported LLM_PROVIDER: {provider}")
 
 
+def get_available_embedding_models() -> set[str]:
+    provider = _embedding_provider()
+
+    if provider == OLLAMA_PROVIDER:
+        client = _get_ollama_client()
+
+        def _call() -> set[str]:
+            response = client.get("/api/tags", timeout=min(settings.llm_timeout_seconds, 5.0))
+            response.raise_for_status()
+            payload = response.json()
+            models = payload.get("models", [])
+            return {str(item.get("name")) for item in models if isinstance(item, dict) and item.get("name")}
+
+        return _with_retries(_call, provider)
+
+    if provider == GOOGLE_PROVIDER:
+        client = _get_google_client()
+        api_key = _google_api_key()
+
+        def _call() -> set[str]:
+            response = client.get(
+                "/v1beta/models",
+                params={"key": api_key},
+                timeout=min(settings.llm_timeout_seconds, 5.0),
+            )
+            response.raise_for_status()
+            payload = response.json()
+            models = payload.get("models", [])
+            names: set[str] = set()
+            for item in models:
+                if not isinstance(item, dict):
+                    continue
+                name = str(item.get("name") or "").strip()
+                if not name:
+                    continue
+                names.add(name)
+                if name.startswith("models/"):
+                    names.add(name[len("models/") :])
+            return names
+
+        return _with_retries(_call, provider)
+
+    if provider == HUGGINGFACE_PROVIDER:
+        return {settings.hf_embedding_model}
+
+    raise RuntimeError(f"Unsupported EMBEDDING_PROVIDER: {provider}")
+
+
+def _validate_embedding_dimensions(embeddings: list[list[float]]) -> list[list[float]]:
+    for idx, vector in enumerate(embeddings):
+        if len(vector) != settings.embedding_dimensions:
+            raise RuntimeError(
+                "Embedding dimension mismatch: "
+                f"expected {settings.embedding_dimensions}, got {len(vector)} at index {idx}."
+            )
+    return embeddings
+
+
 def get_embeddings(texts: list[str]) -> list[list[float]]:
     if not texts:
         return []
     model = _get_embeddings_model()
-    return model.embed_documents(texts)
+    return _validate_embedding_dimensions(model.embed_documents(texts))
 
 
 def get_embedding(text: str) -> list[float]:
     model = _get_query_embeddings_model()
-    return model.embed_query(text)
+    vector = model.embed_query(text)
+    if len(vector) != settings.embedding_dimensions:
+        raise RuntimeError(
+            "Embedding dimension mismatch: "
+            f"expected {settings.embedding_dimensions}, got {len(vector)}."
+        )
+    return vector
 
 
 def generate_answer(system_prompt: str, user_prompt: str) -> str:
