@@ -324,48 +324,14 @@ def render_notion_page(page_id: str) -> HTMLResponse:
 def ingest_notion_pages(db: Session = Depends(get_db)) -> dict:
     """Fetch Notion pages via API, extract text, and ingest into RAG.
     Walks child_page blocks from root pages matching TARGET_ROOT_KEYWORDS."""
-    from app.services.notion import (
-        search_all_pages, extract_page_text, get_page_title,
-        get_blocks, get_page,
-    )
+    from app.services.notion import collect_target_pages, extract_page_text
 
     TARGET_ROOT_KEYWORDS = ["가맹점포용", "가맹본부용"]
 
     if not settings.notion_api_key:
         raise HTTPException(status_code=500, detail="NOTION_API_KEY is not configured.")
 
-    pages = search_all_pages()
-
-    # Find root pages matching keywords
-    root_pages: list[tuple[str, str]] = []  # (page_id, title)
-    for page in pages:
-        title = get_page_title(page)
-        if any(kw in title for kw in TARGET_ROOT_KEYWORDS):
-            root_pages.append((page["id"], title))
-
-    logger.info("Notion ingest: found %d root pages: %s", len(root_pages), root_pages)
-
-    # Recursively collect all child_page IDs under each root
-    def _collect_child_pages(block_id: str, root_id: str, root_title: str,
-                             result: list[tuple[str, str, str]],
-                             depth: int = 0, max_depth: int = 5) -> None:
-        """Collect (child_page_id, root_id, root_title) from blocks."""
-        if depth > max_depth:
-            return
-        blocks = get_blocks(block_id, depth=0, max_depth=0)  # single level
-        for b in blocks:
-            if b.get("type") == "child_page":
-                child_id = b.get("id", "")
-                if child_id:
-                    result.append((child_id, root_id, root_title))
-                    _collect_child_pages(child_id, root_id, root_title, result, depth + 1, max_depth)
-
-    # Build list: [(page_id, root_id, root_title)]
-    pages_to_ingest: list[tuple[str, str, str]] = []
-    for root_id, root_title in root_pages:
-        pages_to_ingest.append((root_id, root_id, root_title))
-        _collect_child_pages(root_id, root_id, root_title, pages_to_ingest)
-
+    pages_to_ingest = collect_target_pages(TARGET_ROOT_KEYWORDS)
     logger.info("Notion ingest: total pages to ingest = %d", len(pages_to_ingest))
 
     ingested = 0

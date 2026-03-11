@@ -504,16 +504,23 @@ def collect_target_pages(
         seen_page_ids.add(page_id)
         results.append((page_id, root_id, root_title))
 
+    def _iter_child_page_ids(blocks: Sequence[dict[str, Any]]) -> list[str]:
+        child_page_ids: list[str] = []
+        for block in blocks:
+            if block.get("type") == "child_page":
+                child_id = block.get("id", "")
+                if child_id:
+                    child_page_ids.append(child_id)
+            nested_blocks = block.get("_children") or []
+            if nested_blocks:
+                child_page_ids.extend(_iter_child_page_ids(nested_blocks))
+        return child_page_ids
+
     def _collect_child_pages(block_id: str, root_id: str, root_title: str, *, depth: int = 0) -> None:
         if depth > max_depth:
             return
-        blocks = get_blocks(block_id, depth=0, max_depth=0)
-        for block in blocks:
-            if block.get("type") != "child_page":
-                continue
-            child_id = block.get("id", "")
-            if not child_id:
-                continue
+        blocks = get_blocks(block_id, depth=0, max_depth=2)
+        for child_id in _iter_child_page_ids(blocks):
             _append(child_id, root_id, root_title)
             _collect_child_pages(child_id, root_id, root_title, depth=depth + 1)
 
