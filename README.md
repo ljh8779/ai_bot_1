@@ -78,7 +78,7 @@ If you want to keep chat on Google but use local HuggingFace embeddings, set:
 LLM_PROVIDER=google
 EMBEDDING_PROVIDER=huggingface
 HF_EMBEDDING_MODEL=nlpai-lab/KURE-v1
-EMBEDDING_DIMENSIONS=1024
+EMBEDDING_DIMENSIONS=768
 ```
 
 If you switch embedding backends for an existing database, re-embed stored chunks so
