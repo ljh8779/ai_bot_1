@@ -4,6 +4,7 @@ import logging
 import re
 import threading
 import time
+import socket
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -59,15 +60,24 @@ def _headers() -> dict[str, str]:
 
 def _api_get(url: str) -> dict | None:
     req = urllib.request.Request(url, headers=_headers())
-    for attempt in range(3):
+    for attempt in range(4):
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 time.sleep(1.5 * (attempt + 1))
                 continue
+            if e.code >= 500 and attempt < 3:
+                time.sleep(1.5 * (attempt + 1))
+                continue
             logger.warning("Notion API GET %s failed: %s", url, e)
+            return None
+        except (TimeoutError, socket.timeout, urllib.error.URLError) as e:
+            if attempt < 3:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            logger.warning("Notion API GET %s error: %s", url, e)
             return None
         except Exception as e:
             logger.warning("Notion API GET %s error: %s", url, e)
@@ -78,15 +88,24 @@ def _api_get(url: str) -> dict | None:
 def _api_post(url: str, data: dict | None = None) -> dict | None:
     body = json.dumps(data or {}).encode()
     req = urllib.request.Request(url, data=body, headers=_headers(), method="POST")
-    for attempt in range(3):
+    for attempt in range(4):
         try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            with urllib.request.urlopen(req, timeout=30) as resp:
                 return json.loads(resp.read().decode())
         except urllib.error.HTTPError as e:
             if e.code == 429:
                 time.sleep(1.5 * (attempt + 1))
                 continue
+            if e.code >= 500 and attempt < 3:
+                time.sleep(1.5 * (attempt + 1))
+                continue
             logger.warning("Notion API POST %s failed: %s", url, e)
+            return None
+        except (TimeoutError, socket.timeout, urllib.error.URLError) as e:
+            if attempt < 3:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            logger.warning("Notion API POST %s error: %s", url, e)
             return None
         except Exception as e:
             logger.warning("Notion API POST %s error: %s", url, e)
@@ -407,6 +426,16 @@ def _blocks_to_text(blocks: list[dict]) -> str:
     for b in blocks:
         btype = b.get("type", "")
         bdata = b.get(btype, {})
+
+        if btype == "child_page":
+            title = (bdata.get("title") or "").strip()
+            if title:
+                parts.append(title)
+
+        if btype == "child_database":
+            title = (bdata.get("title") or "").strip()
+            if title:
+                parts.append(title)
 
         # Extract rich_text content
         for rt in bdata.get("rich_text", []):

@@ -47,7 +47,7 @@ services:
       - "8000:8000"
     volumes:
       - type: bind
-        source: C:/Users/ljh87/Downloads/ai_bot_folder
+        source: ${BULK_INGEST_HOST_DIR}
         target: /bulk_ingest
         read_only: true
 
