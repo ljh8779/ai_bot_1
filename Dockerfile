@@ -9,7 +9,7 @@ COPY app/web/index.html ./
 COPY app/web/src ./src
 
 RUN npm ci && npm run build
-
+dddß
 
 FROM python:3.12-slim
 

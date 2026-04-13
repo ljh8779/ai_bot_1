@@ -1,0 +1,20 @@
+[
+  {
+    "id": "codex",
+    "label": "Codex",
+    "command": "codex",
+    "args": [],
+    "isPrimary": true,
+    "adapterId": "codex-cli",
+    "installCommandHint": "npm install -g @openai/codex"
+  },
+  {
+    "id": "claude",
+    "label": "Claude",
+    "command": "claude",
+    "args": [],
+    "isPrimary": false,
+    "adapterId": "claude-code",
+    "installCommandHint": "npm install -g @anthropic-ai/claude-code"
+  }
+]
